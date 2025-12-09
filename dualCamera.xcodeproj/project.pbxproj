@@ -1,0 +1,483 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		BE123A092EEA14CF00E9A669 /* UI_VISIBILITY_FIXES.md in Resources */ = {isa = PBXBuildFile; fileRef = BE123A082EEA14CF00E9A669 /* UI_VISIBILITY_FIXES.md */; };
+		BE123A0B2EEA18E700E9A669 /* UI_VISIBILITY_TIMING_UPDATE.md in Resources */ = {isa = PBXBuildFile; fileRef = BE123A0A2EEA18E700E9A669 /* UI_VISIBILITY_TIMING_UPDATE.md */; };
+		BE123A0D2EEA1A9900E9A669 /* UI_HIDING_ANIMATION_FIX.md in Resources */ = {isa = PBXBuildFile; fileRef = BE123A0C2EEA1A9900E9A669 /* UI_HIDING_ANIMATION_FIX.md */; };
+		BE123A1B2EEA296E00E9A669 /* UIKIT_VS_SWIFTUI_EXPLANATION.md in Resources */ = {isa = PBXBuildFile; fileRef = BE123A1A2EEA296E00E9A669 /* UIKIT_VS_SWIFTUI_EXPLANATION.md */; };
+		BE123A1D2EEA2A1900E9A669 /* FORCE_REBUILD_FIX_CN.md in Resources */ = {isa = PBXBuildFile; fileRef = BE123A1C2EEA2A1900E9A669 /* FORCE_REBUILD_FIX_CN.md */; };
+		BE123A1F2EEA2CAA00E9A669 /* DOUBLE_TAP_PREVIEW_TOGGLE_CN.md in Resources */ = {isa = PBXBuildFile; fileRef = BE123A1E2EEA2CAA00E9A669 /* DOUBLE_TAP_PREVIEW_TOGGLE_CN.md */; };
+		BE123A212EEA2EE900E9A669 /* STOP_CAMERA_SESSION_CN.md in Resources */ = {isa = PBXBuildFile; fileRef = BE123A202EEA2EE900E9A669 /* STOP_CAMERA_SESSION_CN.md */; };
+		BE2FE4902EE930AD00BA4166 /* CRASH_FIX_INSTRUCTIONS.md in Resources */ = {isa = PBXBuildFile; fileRef = BE2FE48F2EE930AD00BA4166 /* CRASH_FIX_INSTRUCTIONS.md */; };
+		BE2FE4922EE930D700BA4166 /* README_CRASH_FIX.md in Resources */ = {isa = PBXBuildFile; fileRef = BE2FE4912EE930D700BA4166 /* README_CRASH_FIX.md */; };
+		BE2FE4962EE9311D00BA4166 /* FILES_TO_DELETE.md in Resources */ = {isa = PBXBuildFile; fileRef = BE2FE4952EE9311D00BA4166 /* FILES_TO_DELETE.md */; };
+		BE2FE49D2EE934EB00BA4166 /* PASTE_CONSOLE_OUTPUT_HERE.md in Resources */ = {isa = PBXBuildFile; fileRef = BE2FE49C2EE934EB00BA4166 /* PASTE_CONSOLE_OUTPUT_HERE.md */; };
+		BE2FE49F2EE9354B00BA4166 /* INFINITE_LOOP_FIXED.md in Resources */ = {isa = PBXBuildFile; fileRef = BE2FE49E2EE9354B00BA4166 /* INFINITE_LOOP_FIXED.md */; };
+		BE2FE4A12EE936A700BA4166 /* CAMERA_LOOP_FIXED.md in Resources */ = {isa = PBXBuildFile; fileRef = BE2FE4A02EE936A700BA4166 /* CAMERA_LOOP_FIXED.md */; };
+		BE2FE4A32EE9373100BA4166 /* FRONT_CAMERA_FIX.md in Resources */ = {isa = PBXBuildFile; fileRef = BE2FE4A22EE9373100BA4166 /* FRONT_CAMERA_FIX.md */; };
+		BE2FE4A52EE938DB00BA4166 /* PERMISSION_AND_SETTINGS_FIXED.md in Resources */ = {isa = PBXBuildFile; fileRef = BE2FE4A42EE938DB00BA4166 /* PERMISSION_AND_SETTINGS_FIXED.md */; };
+		BE45BC012EEB2A240078159A /* BUTTON_VISIBILITY_AND_AUTO_RESUME_FIX.md in Resources */ = {isa = PBXBuildFile; fileRef = BE45BC002EEB2A240078159A /* BUTTON_VISIBILITY_AND_AUTO_RESUME_FIX.md */; };
+		BE45BC032EEB2C080078159A /* CameraDeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE45BC022EEB2C080078159A /* CameraDeviceInfo.swift */; };
+		BE45BC052EEB2C250078159A /* CameraSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE45BC042EEB2C250078159A /* CameraSelectorView.swift */; };
+		BE45BC072EEB2D080078159A /* CAMERA_SELECTOR_AND_LAYOUT_FIX.md in Resources */ = {isa = PBXBuildFile; fileRef = BE45BC062EEB2D080078159A /* CAMERA_SELECTOR_AND_LAYOUT_FIX.md */; };
+		BE45BC092EEB31740078159A /* BUILD_FIX_MISSING_IMPORTS.md in Resources */ = {isa = PBXBuildFile; fileRef = BE45BC082EEB31740078159A /* BUILD_FIX_MISSING_IMPORTS.md */; };
+		BE45BC0B2EEB3DA30078159A /* CAMERA_SELECTOR_CRASH_FIX.md in Resources */ = {isa = PBXBuildFile; fileRef = BE45BC0A2EEB3DA30078159A /* CAMERA_SELECTOR_CRASH_FIX.md */; };
+		BE45BC0D2EEB40460078159A /* CAMERA_SELECTOR_MULTIPLE_FIXES.md in Resources */ = {isa = PBXBuildFile; fileRef = BE45BC0C2EEB40460078159A /* CAMERA_SELECTOR_MULTIPLE_FIXES.md */; };
+		BE45BC0F2EEB4BE90078159A /* BUILD_ERROR_FIX_AND_REVIEW.md in Resources */ = {isa = PBXBuildFile; fileRef = BE45BC0E2EEB4BE90078159A /* BUILD_ERROR_FIX_AND_REVIEW.md */; };
+		BE45BC112EEB4D9C0078159A /* AllCamerasGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE45BC102EEB4D9C0078159A /* AllCamerasGridView.swift */; };
+		BE45BC132EEB4E360078159A /* CAMERA_SELECTOR_SIMPLIFIED_REDESIGN.md in Resources */ = {isa = PBXBuildFile; fileRef = BE45BC122EEB4E360078159A /* CAMERA_SELECTOR_SIMPLIFIED_REDESIGN.md */; };
+		BE45BC152EEB4F660078159A /* CAMERA_SELECTOR_FINAL_WITH_LIVE_PREVIEW.md in Resources */ = {isa = PBXBuildFile; fileRef = BE45BC142EEB4F660078159A /* CAMERA_SELECTOR_FINAL_WITH_LIVE_PREVIEW.md */; };
+		BE45BC172EEB50EA0078159A /* CAMERA_PREVIEW_LOADING_FIX.md in Resources */ = {isa = PBXBuildFile; fileRef = BE45BC162EEB50EA0078159A /* CAMERA_PREVIEW_LOADING_FIX.md */; };
+		BE87D6642EE9296B0016E02A /* DEBUG_GUIDE.md in Resources */ = {isa = PBXBuildFile; fileRef = BE87D6632EE9296B0016E02A /* DEBUG_GUIDE.md */; };
+		BE87D6662EE929950016E02A /* FIX_SUMMARY_DEC_9.md in Resources */ = {isa = PBXBuildFile; fileRef = BE87D6652EE929950016E02A /* FIX_SUMMARY_DEC_9.md */; };
+		BE87D6682EE9299E0016E02A /* TestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE87D6672EE9299E0016E02A /* TestView.swift */; };
+		BE87D66A2EE929BF0016E02A /* QUICK_DEBUG.md in Resources */ = {isa = PBXBuildFile; fileRef = BE87D6692EE929BF0016E02A /* QUICK_DEBUG.md */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		BE123A082EEA14CF00E9A669 /* UI_VISIBILITY_FIXES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = UI_VISIBILITY_FIXES.md; sourceTree = "<group>"; };
+		BE123A0A2EEA18E700E9A669 /* UI_VISIBILITY_TIMING_UPDATE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = UI_VISIBILITY_TIMING_UPDATE.md; sourceTree = "<group>"; };
+		BE123A0C2EEA1A9900E9A669 /* UI_HIDING_ANIMATION_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = UI_HIDING_ANIMATION_FIX.md; sourceTree = "<group>"; };
+		BE123A1A2EEA296E00E9A669 /* UIKIT_VS_SWIFTUI_EXPLANATION.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = UIKIT_VS_SWIFTUI_EXPLANATION.md; sourceTree = "<group>"; };
+		BE123A1C2EEA2A1900E9A669 /* FORCE_REBUILD_FIX_CN.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = FORCE_REBUILD_FIX_CN.md; sourceTree = "<group>"; };
+		BE123A1E2EEA2CAA00E9A669 /* DOUBLE_TAP_PREVIEW_TOGGLE_CN.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = DOUBLE_TAP_PREVIEW_TOGGLE_CN.md; sourceTree = "<group>"; };
+		BE123A202EEA2EE900E9A669 /* STOP_CAMERA_SESSION_CN.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = STOP_CAMERA_SESSION_CN.md; sourceTree = "<group>"; };
+		BE2FE48F2EE930AD00BA4166 /* CRASH_FIX_INSTRUCTIONS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CRASH_FIX_INSTRUCTIONS.md; sourceTree = "<group>"; };
+		BE2FE4912EE930D700BA4166 /* README_CRASH_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README_CRASH_FIX.md; sourceTree = "<group>"; };
+		BE2FE4932EE9310200BA4166 /* START_HERE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = START_HERE.md; sourceTree = "<group>"; };
+		BE2FE4952EE9311D00BA4166 /* FILES_TO_DELETE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = FILES_TO_DELETE.md; sourceTree = "<group>"; };
+		BE2FE49C2EE934EB00BA4166 /* PASTE_CONSOLE_OUTPUT_HERE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = PASTE_CONSOLE_OUTPUT_HERE.md; sourceTree = "<group>"; };
+		BE2FE49E2EE9354B00BA4166 /* INFINITE_LOOP_FIXED.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = INFINITE_LOOP_FIXED.md; sourceTree = "<group>"; };
+		BE2FE4A02EE936A700BA4166 /* CAMERA_LOOP_FIXED.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CAMERA_LOOP_FIXED.md; sourceTree = "<group>"; };
+		BE2FE4A22EE9373100BA4166 /* FRONT_CAMERA_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = FRONT_CAMERA_FIX.md; sourceTree = "<group>"; };
+		BE2FE4A42EE938DB00BA4166 /* PERMISSION_AND_SETTINGS_FIXED.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = PERMISSION_AND_SETTINGS_FIXED.md; sourceTree = "<group>"; };
+		BE45BC002EEB2A240078159A /* BUTTON_VISIBILITY_AND_AUTO_RESUME_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = BUTTON_VISIBILITY_AND_AUTO_RESUME_FIX.md; sourceTree = "<group>"; };
+		BE45BC022EEB2C080078159A /* CameraDeviceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraDeviceInfo.swift; sourceTree = "<group>"; };
+		BE45BC042EEB2C250078159A /* CameraSelectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraSelectorView.swift; sourceTree = "<group>"; };
+		BE45BC062EEB2D080078159A /* CAMERA_SELECTOR_AND_LAYOUT_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CAMERA_SELECTOR_AND_LAYOUT_FIX.md; sourceTree = "<group>"; };
+		BE45BC082EEB31740078159A /* BUILD_FIX_MISSING_IMPORTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = BUILD_FIX_MISSING_IMPORTS.md; sourceTree = "<group>"; };
+		BE45BC0A2EEB3DA30078159A /* CAMERA_SELECTOR_CRASH_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CAMERA_SELECTOR_CRASH_FIX.md; sourceTree = "<group>"; };
+		BE45BC0C2EEB40460078159A /* CAMERA_SELECTOR_MULTIPLE_FIXES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CAMERA_SELECTOR_MULTIPLE_FIXES.md; sourceTree = "<group>"; };
+		BE45BC0E2EEB4BE90078159A /* BUILD_ERROR_FIX_AND_REVIEW.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = BUILD_ERROR_FIX_AND_REVIEW.md; sourceTree = "<group>"; };
+		BE45BC102EEB4D9C0078159A /* AllCamerasGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllCamerasGridView.swift; sourceTree = "<group>"; };
+		BE45BC122EEB4E360078159A /* CAMERA_SELECTOR_SIMPLIFIED_REDESIGN.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CAMERA_SELECTOR_SIMPLIFIED_REDESIGN.md; sourceTree = "<group>"; };
+		BE45BC142EEB4F660078159A /* CAMERA_SELECTOR_FINAL_WITH_LIVE_PREVIEW.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CAMERA_SELECTOR_FINAL_WITH_LIVE_PREVIEW.md; sourceTree = "<group>"; };
+		BE45BC162EEB50EA0078159A /* CAMERA_PREVIEW_LOADING_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CAMERA_PREVIEW_LOADING_FIX.md; sourceTree = "<group>"; };
+		BE7154E42EE888940048E5E5 /* dualCamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = dualCamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BE87D6632EE9296B0016E02A /* DEBUG_GUIDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = DEBUG_GUIDE.md; sourceTree = "<group>"; };
+		BE87D6652EE929950016E02A /* FIX_SUMMARY_DEC_9.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = FIX_SUMMARY_DEC_9.md; sourceTree = "<group>"; };
+		BE87D6672EE9299E0016E02A /* TestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestView.swift; sourceTree = "<group>"; };
+		BE87D6692EE929BF0016E02A /* QUICK_DEBUG.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = QUICK_DEBUG.md; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		BE2FE49B2EE9323400BA4166 /* Exceptions for "dualCamera" folder in "dualCamera" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = BE7154E32EE888940048E5E5 /* dualCamera */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		BE7154E62EE888940048E5E5 /* dualCamera */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				BE2FE49B2EE9323400BA4166 /* Exceptions for "dualCamera" folder in "dualCamera" target */,
+			);
+			path = dualCamera;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BE7154E12EE888940048E5E5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		BE7154DB2EE888940048E5E5 = {
+			isa = PBXGroup;
+			children = (
+				BE7154E62EE888940048E5E5 /* dualCamera */,
+				BE7154E52EE888940048E5E5 /* Products */,
+				BE87D6632EE9296B0016E02A /* DEBUG_GUIDE.md */,
+				BE87D6652EE929950016E02A /* FIX_SUMMARY_DEC_9.md */,
+				BE87D6672EE9299E0016E02A /* TestView.swift */,
+				BE87D6692EE929BF0016E02A /* QUICK_DEBUG.md */,
+				BE2FE48F2EE930AD00BA4166 /* CRASH_FIX_INSTRUCTIONS.md */,
+				BE2FE4912EE930D700BA4166 /* README_CRASH_FIX.md */,
+				BE2FE4932EE9310200BA4166 /* START_HERE.md */,
+				BE2FE4952EE9311D00BA4166 /* FILES_TO_DELETE.md */,
+				BE2FE49C2EE934EB00BA4166 /* PASTE_CONSOLE_OUTPUT_HERE.md */,
+				BE2FE49E2EE9354B00BA4166 /* INFINITE_LOOP_FIXED.md */,
+				BE2FE4A02EE936A700BA4166 /* CAMERA_LOOP_FIXED.md */,
+				BE2FE4A22EE9373100BA4166 /* FRONT_CAMERA_FIX.md */,
+				BE2FE4A42EE938DB00BA4166 /* PERMISSION_AND_SETTINGS_FIXED.md */,
+				BE123A082EEA14CF00E9A669 /* UI_VISIBILITY_FIXES.md */,
+				BE123A0A2EEA18E700E9A669 /* UI_VISIBILITY_TIMING_UPDATE.md */,
+				BE123A0C2EEA1A9900E9A669 /* UI_HIDING_ANIMATION_FIX.md */,
+				BE123A1A2EEA296E00E9A669 /* UIKIT_VS_SWIFTUI_EXPLANATION.md */,
+				BE123A1C2EEA2A1900E9A669 /* FORCE_REBUILD_FIX_CN.md */,
+				BE123A1E2EEA2CAA00E9A669 /* DOUBLE_TAP_PREVIEW_TOGGLE_CN.md */,
+				BE123A202EEA2EE900E9A669 /* STOP_CAMERA_SESSION_CN.md */,
+				BE45BC002EEB2A240078159A /* BUTTON_VISIBILITY_AND_AUTO_RESUME_FIX.md */,
+				BE45BC022EEB2C080078159A /* CameraDeviceInfo.swift */,
+				BE45BC042EEB2C250078159A /* CameraSelectorView.swift */,
+				BE45BC062EEB2D080078159A /* CAMERA_SELECTOR_AND_LAYOUT_FIX.md */,
+				BE45BC082EEB31740078159A /* BUILD_FIX_MISSING_IMPORTS.md */,
+				BE45BC0A2EEB3DA30078159A /* CAMERA_SELECTOR_CRASH_FIX.md */,
+				BE45BC0C2EEB40460078159A /* CAMERA_SELECTOR_MULTIPLE_FIXES.md */,
+				BE45BC0E2EEB4BE90078159A /* BUILD_ERROR_FIX_AND_REVIEW.md */,
+				BE45BC102EEB4D9C0078159A /* AllCamerasGridView.swift */,
+				BE45BC122EEB4E360078159A /* CAMERA_SELECTOR_SIMPLIFIED_REDESIGN.md */,
+				BE45BC142EEB4F660078159A /* CAMERA_SELECTOR_FINAL_WITH_LIVE_PREVIEW.md */,
+				BE45BC162EEB50EA0078159A /* CAMERA_PREVIEW_LOADING_FIX.md */,
+			);
+			sourceTree = "<group>";
+		};
+		BE7154E52EE888940048E5E5 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BE7154E42EE888940048E5E5 /* dualCamera.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		BE7154E32EE888940048E5E5 /* dualCamera */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BE7154EF2EE888950048E5E5 /* Build configuration list for PBXNativeTarget "dualCamera" */;
+			buildPhases = (
+				BE7154E02EE888940048E5E5 /* Sources */,
+				BE7154E12EE888940048E5E5 /* Frameworks */,
+				BE7154E22EE888940048E5E5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BE7154E62EE888940048E5E5 /* dualCamera */,
+			);
+			name = dualCamera;
+			packageProductDependencies = (
+			);
+			productName = dualCamera;
+			productReference = BE7154E42EE888940048E5E5 /* dualCamera.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BE7154DC2EE888940048E5E5 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2610;
+				LastUpgradeCheck = 2610;
+				TargetAttributes = {
+					BE7154E32EE888940048E5E5 = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+				};
+			};
+			buildConfigurationList = BE7154DF2EE888940048E5E5 /* Build configuration list for PBXProject "dualCamera" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = BE7154DB2EE888940048E5E5;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = BE7154E52EE888940048E5E5 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BE7154E32EE888940048E5E5 /* dualCamera */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BE7154E22EE888940048E5E5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BE87D6642EE9296B0016E02A /* DEBUG_GUIDE.md in Resources */,
+				BE123A0B2EEA18E700E9A669 /* UI_VISIBILITY_TIMING_UPDATE.md in Resources */,
+				BE123A0D2EEA1A9900E9A669 /* UI_HIDING_ANIMATION_FIX.md in Resources */,
+				BE123A1B2EEA296E00E9A669 /* UIKIT_VS_SWIFTUI_EXPLANATION.md in Resources */,
+				BE123A092EEA14CF00E9A669 /* UI_VISIBILITY_FIXES.md in Resources */,
+				BE87D6662EE929950016E02A /* FIX_SUMMARY_DEC_9.md in Resources */,
+				BE123A212EEA2EE900E9A669 /* STOP_CAMERA_SESSION_CN.md in Resources */,
+				BE87D66A2EE929BF0016E02A /* QUICK_DEBUG.md in Resources */,
+				BE2FE4A32EE9373100BA4166 /* FRONT_CAMERA_FIX.md in Resources */,
+				BE45BC132EEB4E360078159A /* CAMERA_SELECTOR_SIMPLIFIED_REDESIGN.md in Resources */,
+				BE45BC0D2EEB40460078159A /* CAMERA_SELECTOR_MULTIPLE_FIXES.md in Resources */,
+				BE45BC0F2EEB4BE90078159A /* BUILD_ERROR_FIX_AND_REVIEW.md in Resources */,
+				BE45BC092EEB31740078159A /* BUILD_FIX_MISSING_IMPORTS.md in Resources */,
+				BE45BC172EEB50EA0078159A /* CAMERA_PREVIEW_LOADING_FIX.md in Resources */,
+				BE45BC012EEB2A240078159A /* BUTTON_VISIBILITY_AND_AUTO_RESUME_FIX.md in Resources */,
+				BE45BC0B2EEB3DA30078159A /* CAMERA_SELECTOR_CRASH_FIX.md in Resources */,
+				BE45BC152EEB4F660078159A /* CAMERA_SELECTOR_FINAL_WITH_LIVE_PREVIEW.md in Resources */,
+				BE2FE49F2EE9354B00BA4166 /* INFINITE_LOOP_FIXED.md in Resources */,
+				BE123A1F2EEA2CAA00E9A669 /* DOUBLE_TAP_PREVIEW_TOGGLE_CN.md in Resources */,
+				BE123A1D2EEA2A1900E9A669 /* FORCE_REBUILD_FIX_CN.md in Resources */,
+				BE2FE4922EE930D700BA4166 /* README_CRASH_FIX.md in Resources */,
+				BE45BC072EEB2D080078159A /* CAMERA_SELECTOR_AND_LAYOUT_FIX.md in Resources */,
+				BE2FE4A12EE936A700BA4166 /* CAMERA_LOOP_FIXED.md in Resources */,
+				BE2FE49D2EE934EB00BA4166 /* PASTE_CONSOLE_OUTPUT_HERE.md in Resources */,
+				BE2FE4962EE9311D00BA4166 /* FILES_TO_DELETE.md in Resources */,
+				BE2FE4902EE930AD00BA4166 /* CRASH_FIX_INSTRUCTIONS.md in Resources */,
+				BE2FE4A52EE938DB00BA4166 /* PERMISSION_AND_SETTINGS_FIXED.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BE7154E02EE888940048E5E5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BE87D6682EE9299E0016E02A /* TestView.swift in Sources */,
+				BE45BC112EEB4D9C0078159A /* AllCamerasGridView.swift in Sources */,
+				BE45BC032EEB2C080078159A /* CameraDeviceInfo.swift in Sources */,
+				BE45BC052EEB2C250078159A /* CameraSelectorView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		BE7154ED2EE888950048E5E5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		BE7154EE2EE888950048E5E5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		BE7154F02EE888950048E5E5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VV89DVS5FH;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to take photos and videos";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need access to your microphone to record audio with videos";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Need access to photo library to save images and videos";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.acgcomrade.dualCamera;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BE7154F12EE888950048E5E5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VV89DVS5FH;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to take photos and videos";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need access to your microphone to record audio with videos";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Need access to photo library to save images and videos";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.acgcomrade.dualCamera;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		BE7154DF2EE888940048E5E5 /* Build configuration list for PBXProject "dualCamera" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BE7154ED2EE888950048E5E5 /* Debug */,
+				BE7154EE2EE888950048E5E5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BE7154EF2EE888950048E5E5 /* Build configuration list for PBXNativeTarget "dualCamera" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BE7154F02EE888950048E5E5 /* Debug */,
+				BE7154F12EE888950048E5E5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = BE7154DC2EE888940048E5E5 /* Project object */;
+}

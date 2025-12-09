@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <FileRef
+      location = "self:">
+   </FileRef>
+   <FileRef
+      location = "group:DIAGNOSTIC_GUIDE.md">
+   </FileRef>
+   <FileRef
+      location = "group:FIX_NOT_WORKING.md">
+   </FileRef>
+   <FileRef
+      location = "group:READ_ME_FIRST.md">
+   </FileRef>
+</Workspace>

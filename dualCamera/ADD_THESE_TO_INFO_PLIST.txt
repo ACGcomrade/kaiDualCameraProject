@@ -1,0 +1,30 @@
+============================================
+COPY THESE 3 KEYS TO YOUR INFO.PLIST
+============================================
+
+Open your existing Info.plist file in Xcode
+Right-click → Open As → Source Code
+Add these 3 keys inside the <dict> tag:
+
+--------------------------------------------
+
+<key>NSCameraUsageDescription</key>
+<string>We need access to your camera to take photos and videos</string>
+
+<key>NSPhotoLibraryAddUsageDescription</key>
+<string>We need permission to save photos and videos to your library</string>
+
+<key>NSMicrophoneUsageDescription</key>
+<string>We need access to your microphone to record audio with videos</string>
+
+--------------------------------------------
+
+That's all you need to add!
+These 3 permissions will fix the crash.
+
+After adding:
+1. Clean Build (Cmd+Shift+K)
+2. Build (Cmd+B)
+3. Run (Cmd+R)
+
+Done! ✅
