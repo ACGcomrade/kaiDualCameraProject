@@ -50,7 +50,7 @@ class CameraViewModel: ObservableObject {
     @Published var zoomFactor: CGFloat = 1.0
     @Published var recordingDuration: TimeInterval = 0  // Track locally
     
-    let cameraManager = CameraManager()
+    let cameraManager = CameraManager.shared
     let uiVisibilityManager = UIVisibilityManager()
     let performanceMonitor = PerformanceMonitor()
     private var cancellables = Set<AnyCancellable>()
@@ -81,13 +81,14 @@ class CameraViewModel: ObservableObject {
     func handleUserInteraction() {
         print("📱 CameraViewModel: handleUserInteraction() called")
         
-        // If camera is stopped, restart it
+        // If camera preview is hidden, show it and restart session
         if !uiVisibilityManager.isPreviewVisible {
-            print("📱 CameraViewModel: Camera was stopped, restarting...")
+            print("📱 CameraViewModel: Camera preview was hidden, restoring...")
+            uiVisibilityManager.isPreviewVisible = true
             cameraManager.setupSession()
         }
         
-        // Show UI and restart timer
+        // Show UI and restart timer (UI auto-hides after 3 seconds)
         uiVisibilityManager.userDidInteract()
     }
     
@@ -97,17 +98,17 @@ class CameraViewModel: ObservableObject {
         print("🔄 CameraViewModel: ensureCameraActiveAndExecute() called")
         print("🔄 CameraViewModel: isPreviewVisible = \(uiVisibilityManager.isPreviewVisible)")
         
-        // If camera is stopped, restart it first
+        // If camera preview is hidden, restore it first
         if !uiVisibilityManager.isPreviewVisible {
-            print("🔄 CameraViewModel: Camera is stopped, restarting...")
+            print("🔄 CameraViewModel: Camera preview hidden, restoring...")
             
-            // 1. 先恢复 UI 可见性和 camera 会话
-            uiVisibilityManager.userDidInteract()
+            // 1. 恢复 preview 可见性和 camera 会话
+            uiVisibilityManager.isPreviewVisible = true
             cameraManager.setupSession()
             
             // 2. 给 camera 一点时间启动，然后执行 action
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                print("🔄 CameraViewModel: Camera restarted, executing action now")
+                print("🔄 CameraViewModel: Camera session restored, executing action now")
                 action()
             }
         } else {
@@ -122,7 +123,7 @@ class CameraViewModel: ObservableObject {
         print("📱 CameraViewModel: toggleCameraSession() called")
         
         // Toggle the visibility state
-        uiVisibilityManager.toggleCameraSession()
+        uiVisibilityManager.isPreviewVisible.toggle()
         
         // Actually stop/start the camera session
         if uiVisibilityManager.isPreviewVisible {
@@ -136,6 +137,20 @@ class CameraViewModel: ObservableObject {
         }
     }
     
+    /// Resume camera session (force start without toggling UI state)
+    func resumeCameraSession() {
+        print("📱 CameraViewModel: resumeCameraSession() called")
+        
+        // Ensure preview is visible
+        if !uiVisibilityManager.isPreviewVisible {
+            uiVisibilityManager.isPreviewVisible = true
+        }
+        
+        // Force start the camera session
+        print("📱 CameraViewModel: Force starting camera session...")
+        cameraManager.setupSession()
+    }
+    
     private func setupRecordingObserver() {
         // Observe recording duration from camera manager
         cameraManager.$recordingDuration
@@ -145,21 +160,10 @@ class CameraViewModel: ObservableObject {
         cameraManager.$isRecording
             .assign(to: &$isRecording)
         
-        // Observe preview visibility to control camera session
-        uiVisibilityManager.$isPreviewVisible
-            .dropFirst() // Skip initial value
-            .sink { [weak self] isVisible in
-                guard let self = self else { return }
-                
-                if isVisible {
-                    print("📱 CameraViewModel: Preview became visible - starting camera session")
-                    self.cameraManager.setupSession()
-                } else {
-                    print("📱 CameraViewModel: Preview became hidden - stopping camera session")
-                    self.cameraManager.stopSession()
-                }
-            }
-            .store(in: &cancellables)
+        // REMOVED: Preview visibility observer that auto-controlled session
+        // This caused conflicts with manual session control during menu navigation
+        // Session is now controlled explicitly by toggleCameraSession() and menu lifecycle
+        print("📱 CameraViewModel: Recording observers setup (preview auto-control disabled)")
     }
     
     func checkPermission() {

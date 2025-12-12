@@ -17,8 +17,8 @@ class MetalPreviewLayer: UIView {
     private var currentTexture: MTLTexture?
     private let textureLock = NSLock()
     
-    // Transform for rotation
-    private var rotationAngle: Float = 0
+    // Transform for rotation (currently unused, but kept for future orientation handling)
+    // private var rotationAngle: Float = 0
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -125,7 +125,7 @@ class MetalPreviewLayer: UIView {
         
         textureLock.lock()
         currentTexture = texture
-        rotationAngle = rotation
+        // rotationAngle = rotation  // Currently unused
         textureLock.unlock()
     }
     
@@ -151,7 +151,7 @@ extension MetalPreviewLayer: MTKViewDelegate {
         
         textureLock.lock()
         let _texture = currentTexture
-        let _rotation = rotationAngle
+        // let _rotation = rotationAngle  // Currently unused
         textureLock.unlock()
         
         guard let _sourceTexture = _texture else {

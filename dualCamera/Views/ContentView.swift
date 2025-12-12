@@ -4,28 +4,21 @@ struct ContentView: View {
     @StateObject private var viewModel = CameraViewModel()
     @State private var hasAppearedOnce = false
     @State private var showGallery = false
-    @State private var showCameraSelector = false
     @State private var recordingDotOpacity: Double = 1.0  // For slow blinking
+    @State private var previewRefreshID = UUID()  // Force preview rebuild
+    @State private var focusPoint: CGPoint? = nil  // Focus indicator position
+    @State private var showFocusIndicator = false  // Control focus indicator visibility
+    @State private var showResolutionPicker = false  // Show resolution picker
+    @State private var showFrameRatePicker = false  // Show frame rate picker
+    @State private var showSettingsChangeAlert = false  // Show settings change alert
+    @State private var settingsChangeMessage = ""  // Settings change message
+    @State private var selectedResolution: VideoResolution = .resolution_1080p  // Temporary resolution selection
+    @State private var selectedFrameRate: FrameRate = .fps_30  // Temporary frame rate selection
     
     var body: some View {
         cameraView
             .sheet(isPresented: $showGallery) {
                 PhotoGalleryView()
-            }
-            .sheet(isPresented: $showCameraSelector) {
-                AllCamerasGridView(viewModel: viewModel)
-                    .onAppear {
-                        // 调用双击冻结的method停止主预览
-                        if viewModel.uiVisibilityManager.isPreviewVisible {
-                            viewModel.toggleCameraSession()
-                        }
-                    }
-                    .onDisappear {
-                        // 恢复主预览
-                        if !viewModel.uiVisibilityManager.isPreviewVisible {
-                            viewModel.toggleCameraSession()
-                        }
-                    }
             }
             .onAppear {
                 // SAFETY: Only run setup once, even if onAppear is called multiple times
@@ -45,27 +38,19 @@ struct ContentView: View {
             Color.black
                 .ignoresSafeArea()
             
-            // Full screen dual camera preview (can be stopped by double-tap)
-            // Double tap stops the camera session (stops receiving frames from camera)
+            // Full screen dual camera preview - always visible
             DualCameraPreview(viewModel: viewModel)
                 .ignoresSafeArea()
-                .id(viewModel.uiVisibilityManager.isPreviewVisible)  // Force view rebuild
-                .opacity(viewModel.uiVisibilityManager.isPreviewVisible ? 1.0 : 0.0)
-                .contentShape(Rectangle())
-                .allowsHitTesting(true)  // Always allow hit testing
-                .onTapGesture(count: 2) {
-                    print("🖐️ ContentView: Double tap - toggling camera session")
-                    // Double tap stops/starts camera session (stops receiving camera frames)
-                    viewModel.toggleCameraSession()
-                }
-                .onTapGesture {
-                    print("🖐️ ContentView: Single tap - ensuring camera is running")
-                    // Single tap starts camera if stopped and resets timer
-                    viewModel.handleUserInteraction()
-                }
+                .id(previewRefreshID)  // Force rebuild when ID changes
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onEnded { value in
+                            handleTapToFocus(at: value.location)
+                        }
+                )
             
-            // Recording indicator (red dot) when preview is hidden
-            if !viewModel.uiVisibilityManager.isPreviewVisible && viewModel.isRecording {
+            // Recording indicator (red dot) - always show during recording
+            if viewModel.isRecording {
                 VStack {
                     HStack {
                         Circle()
@@ -102,18 +87,21 @@ struct ContentView: View {
                     let isLandscape = geometry.size.width > geometry.size.height
                     
                     if isLandscape {
-                        // Horizontal slider centered at bottom
+                        // Horizontal sliders at bottom
                         VStack {
                             Spacer()
                             
-                            ZoomSlider(
-                                zoomFactor: $viewModel.zoomFactor,
-                                minZoom: viewModel.cameraManager.minZoomFactor,
-                                maxZoom: viewModel.cameraManager.maxZoomFactor,
-                                isHorizontal: true
-                            )
-                            .onChange(of: viewModel.zoomFactor) { _, newValue in
-                                viewModel.setZoom(newValue)
+                            VStack(spacing: 15) {
+                                // Zoom slider
+                                ZoomSlider(
+                                    zoomFactor: $viewModel.zoomFactor,
+                                    minZoom: viewModel.cameraManager.minZoomFactor,
+                                    maxZoom: viewModel.cameraManager.maxZoomFactor,
+                                    isHorizontal: true
+                                )
+                                .onChange(of: viewModel.zoomFactor) { _, newValue in
+                                    viewModel.setZoom(newValue)
+                                }
                             }
                             .padding(.bottom, 20)
                             .opacity(viewModel.uiVisibilityManager.isUIVisible && viewModel.uiVisibilityManager.isPreviewVisible ? 1.0 : 0.0)
@@ -121,11 +109,12 @@ struct ContentView: View {
                             .animation(.easeInOut(duration: 0.3), value: viewModel.uiVisibilityManager.isPreviewVisible)
                         }
                     } else {
-                        // Vertical slider on left side
+                        // Vertical sliders on left side
                         VStack {
                             Spacer()
                             
                             HStack {
+                                // Zoom slider
                                 ZoomSlider(
                                     zoomFactor: $viewModel.zoomFactor,
                                     minZoom: viewModel.cameraManager.minZoomFactor,
@@ -138,6 +127,57 @@ struct ContentView: View {
                                 .padding(.leading, 20)
                                 
                                 Spacer()
+                                
+                                // Right side vertical buttons: Filter, Resolution, Frame Rate
+                                VStack(spacing: 15) {
+                                    // Filter button
+                                    Button(action: {
+                                        switchFilter()
+                                    }) {
+                                        Image(systemName: "camera.filters")
+                                            .font(.system(size: 24))
+                                            .foregroundColor(.white)
+                                            .frame(width: 50, height: 50)
+                                            .background(Color.black.opacity(0.7))
+                                            .clipShape(Circle())
+                                    }
+                                    .id(viewModel.cameraManager.currentFilter.rawValue)
+                                    
+                                    // Resolution button
+                                    Button(action: {
+                                        selectedResolution = viewModel.cameraManager.currentResolution
+                                        showResolutionPicker = true
+                                    }) {
+                                        VStack(spacing: 2) {
+                                            Image(systemName: "4k.tv")
+                                                .font(.system(size: 18))
+                                            Text("分辨率")
+                                                .font(.system(size: 8))
+                                        }
+                                        .foregroundColor(.white)
+                                        .frame(width: 50, height: 50)
+                                        .background(Color.black.opacity(0.7))
+                                        .clipShape(Circle())
+                                    }
+                                    
+                                    // Frame rate button
+                                    Button(action: {
+                                        selectedFrameRate = viewModel.cameraManager.currentFrameRate
+                                        showFrameRatePicker = true
+                                    }) {
+                                        VStack(spacing: 2) {
+                                            Image(systemName: "speedometer")
+                                                .font(.system(size: 18))
+                                            Text("帧率")
+                                                .font(.system(size: 8))
+                                        }
+                                        .foregroundColor(.white)
+                                        .frame(width: 50, height: 50)
+                                        .background(Color.black.opacity(0.7))
+                                        .clipShape(Circle())
+                                    }
+                                }
+                                .padding(.trailing, 20)
                             }
                             .padding(.bottom, 150)
                             .opacity(viewModel.uiVisibilityManager.isUIVisible && viewModel.uiVisibilityManager.isPreviewVisible ? 1.0 : 0.0)
@@ -199,28 +239,50 @@ struct ContentView: View {
                             // 横屏布局
                             GeometryReader { geo in
                                 ZStack {
+                                    // 摄像模式切换按钮 - 长条形，在PIP预览框正下方
+                                    if viewModel.uiVisibilityManager.isUIVisible {
+                                        VStack {
+                                            Spacer()
+                                                .frame(height: 60) // 顶部安全区域
+                                            
+                                            // PIP预览框区域
+                                            VStack {
+                                                Spacer()
+                                                    .frame(height: geo.size.height * 0.30) // PIP高度
+                                                
+                                                // 相机切换按钮直接在PIP下方
+                                                Button(action: {
+                                                    switchCameraMode()
+                                                }) {
+                                                    HStack(spacing: 8) {
+                                                        Image(systemName: viewModel.cameraManager.cameraMode.iconName)
+                                                            .font(.system(size: 18))
+                                                        Text(viewModel.cameraManager.cameraMode.displayName)
+                                                            .font(.system(size: 13, weight: .medium))
+                                                    }
+                                                    .foregroundColor(.white)
+                                                    .padding(.horizontal, 14)
+                                                    .padding(.vertical, 8)
+                                                    .background(Color.black.opacity(0.7))
+                                                    .cornerRadius(16)
+                                                }
+                                                .transition(.opacity)
+                                                .padding(.top, 8)
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .trailing)
+                                            .padding(.trailing, 20)
+                                            
+                                            Spacer()
+                                        }
+                                    }
+                                    
                                     // 右侧垂直布局
                                     HStack {
                                         Spacer()
                                         
                                         VStack(spacing: 0) {
-                                            // 顶部按钮区域
+                                            // 顶部区域
                                             Spacer().frame(height: 60)
-                                            
-                                            // Camera selector button - 在顶部
-                                            if viewModel.uiVisibilityManager.isUIVisible {
-                                                Button(action: {
-                                                    showCameraSelector = true
-                                                }) {
-                                                    Image(systemName: "camera.metering.multispot")
-                                                        .font(.system(size: 26))
-                                                        .foregroundColor(.white)
-                                                        .frame(width: 56, height: 56)
-                                                        .background(Color.black.opacity(0.6))
-                                                        .clipShape(Circle())
-                                                }
-                                                .transition(.opacity)
-                                            }
                                             
                                             Spacer()
                                             
@@ -253,9 +315,48 @@ struct ContentView: View {
                                             
                                             Spacer()
                                             
-                                            // 底部三个按钮横向排列: Flash, Mode, Gallery
+                                            // 底部按钮横向排列: Resolution, FPS, Flash, Filter, Mode, Gallery
                                             if viewModel.uiVisibilityManager.isUIVisible {
-                                                HStack(spacing: 20) {
+                                                VStack(spacing: 15) {
+                                                    // 第一排：分辨率和帧率
+                                                    HStack(spacing: 20) {
+                                                        // Resolution button
+                                                        Button(action: {
+                                                            selectedResolution = viewModel.cameraManager.currentResolution
+                                                            showResolutionPicker = true
+                                                        }) {
+                                                            VStack(spacing: 2) {
+                                                                Image(systemName: "4k.tv")
+                                                                    .font(.system(size: 18))
+                                                                Text("分辨率")
+                                                                    .font(.system(size: 8))
+                                                            }
+                                                            .foregroundColor(.white)
+                                                            .frame(width: 50, height: 50)
+                                                            .background(Color.black.opacity(0.6))
+                                                            .clipShape(Circle())
+                                                        }
+                                                        
+                                                        // Frame rate button
+                                                        Button(action: {
+                                                            selectedFrameRate = viewModel.cameraManager.currentFrameRate
+                                                            showFrameRatePicker = true
+                                                        }) {
+                                                            VStack(spacing: 2) {
+                                                                Image(systemName: "speedometer")
+                                                                    .font(.system(size: 18))
+                                                                Text("帧率")
+                                                                    .font(.system(size: 8))
+                                                            }
+                                                            .foregroundColor(.white)
+                                                            .frame(width: 50, height: 50)
+                                                            .background(Color.black.opacity(0.6))
+                                                            .clipShape(Circle())
+                                                        }
+                                                    }
+                                                    
+                                                    // 第二排：原有按钮
+                                                    HStack(spacing: 20) {
                                                     // Flash toggle with mode indicator
                                                     Button(action: { 
                                                         viewModel.ensureCameraActiveAndExecute {
@@ -283,6 +384,19 @@ struct ContentView: View {
                                                             }
                                                         }
                                                     }
+                                                    
+                                                    // Filter button
+                                                    Button(action: {
+                                                        switchFilter()
+                                                    }) {
+                                                        Image(systemName: "camera.filters")
+                                                            .font(.system(size: 26))
+                                                            .foregroundColor(.white)
+                                                            .frame(width: 56, height: 56)
+                                                            .background(Color.black.opacity(0.6))
+                                                            .clipShape(Circle())
+                                                    }
+                                                    .id(viewModel.cameraManager.currentFilter.rawValue)
                                                     
                                                     // Mode switch button
                                                     Button(action: { 
@@ -323,8 +437,9 @@ struct ContentView: View {
                                                                 .clipShape(RoundedRectangle(cornerRadius: 10))
                                                         }
                                                     }
+                                                    }
                                                 }
-                                                .padding(.bottom, 40)
+                                                .padding(.bottom, 30)
                                                 .transition(.opacity)
                                             } else {
                                                 Spacer().frame(height: 40)
@@ -335,34 +450,35 @@ struct ContentView: View {
                                 }
                             }
                         } else {
-                            // 竖屏布局: 使用原来的 CameraControlButtons
+                            // 竖屏布局
                             VStack {
                                 Spacer()
                                 
                                 CameraControlButtons(
-                                    captureMode: viewModel.captureMode,
-                                    flashMode: viewModel.flashMode,
-                                    isRecording: viewModel.isRecording,
-                                    lastCapturedImage: viewModel.lastCapturedImage,
-                                    onFlashToggle: { 
-                                        viewModel.ensureCameraActiveAndExecute {
-                                            viewModel.toggleFlash()
-                                        }
-                                    },
-                                    onCapture: { viewModel.captureOrRecord() },
-                                    onModeSwitch: { 
-                                        viewModel.ensureCameraActiveAndExecute {
-                                            viewModel.switchMode()
-                                        }
-                                    },
-                                    onOpenGallery: { 
-                                        viewModel.ensureCameraActiveAndExecute {
-                                            showGallery = true
-                                        }
-                                    },
-                                    onInteraction: { viewModel.uiVisibilityManager.userDidInteract() },
-                                    isUIVisible: viewModel.uiVisibilityManager.isUIVisible
-                                )
+                                        captureMode: viewModel.captureMode,
+                                        flashMode: viewModel.flashMode,
+                                        isRecording: viewModel.isRecording,
+                                        lastCapturedImage: viewModel.lastCapturedImage,
+                                        onFlashToggle: { 
+                                            viewModel.ensureCameraActiveAndExecute {
+                                                viewModel.toggleFlash()
+                                            }
+                                        },
+                                        onCapture: { viewModel.captureOrRecord() },
+                                        onModeSwitch: { 
+                                            viewModel.ensureCameraActiveAndExecute {
+                                                viewModel.switchMode()
+                                            }
+                                        },
+                                        onOpenGallery: { 
+                                            viewModel.ensureCameraActiveAndExecute {
+                                                showGallery = true
+                                            }
+                                        },
+                                        onInteraction: { viewModel.uiVisibilityManager.userDidInteract() },
+                                        isUIVisible: viewModel.uiVisibilityManager.isUIVisible
+                                    )
+
                             }
                         }
                     }
@@ -371,7 +487,7 @@ struct ContentView: View {
                 .transition(.opacity)
             }
             
-            // Camera selector button for portrait (left top corner)
+            // Camera mode switch button for portrait (left top corner)
             if viewModel.uiVisibilityManager.isUIVisible && viewModel.uiVisibilityManager.isPreviewVisible {
                 GeometryReader { geometry in
                     let isLandscape = geometry.size.width > geometry.size.height
@@ -381,9 +497,9 @@ struct ContentView: View {
                         VStack {
                             HStack {
                                 Button(action: {
-                                    showCameraSelector = true
+                                    switchCameraMode()
                                 }) {
-                                    Image(systemName: "camera.metering.multispot")
+                                    Image(systemName: viewModel.cameraManager.cameraMode.iconName)
                                         .font(.system(size: 24))
                                         .foregroundColor(.white)
                                         .frame(width: 50, height: 50)
@@ -478,6 +594,13 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.3), value: viewModel.uiVisibilityManager.isPreviewVisible)
             .allowsHitTesting(!viewModel.uiVisibilityManager.isPreviewVisible)  // Only allow interaction when preview is hidden
             
+            // Focus indicator - shows when user taps to focus
+            if showFocusIndicator, let point = focusPoint {
+                FocusIndicator(position: point)
+                    .allowsHitTesting(false)
+                    .id(point.x + point.y)  // Force recreation on new tap
+            }
+            
             // Screen flash overlay
             if viewModel.showScreenFlash {
                 Color.white
@@ -508,6 +631,43 @@ struct ContentView: View {
                     }
                 )
             }
+            
+            // Resolution picker
+            if showResolutionPicker {
+                PickerOverlay(
+                    title: "选择分辨率",
+                    options: VideoResolution.allCases,
+                    selection: $selectedResolution,
+                    onDismiss: {
+                        showResolutionPicker = false
+                        handleResolutionChange(selectedResolution)
+                    },
+                    displayName: { $0.displayName }
+                )
+            }
+            
+            // Frame rate picker
+            if showFrameRatePicker {
+                FrameRatePickerOverlay(
+                    title: "选择帧率",
+                    options: FrameRate.allCases,
+                    selection: $selectedFrameRate,
+                    onDismiss: {
+                        showFrameRatePicker = false
+                        handleFrameRateChange(selectedFrameRate)
+                    }
+                )
+            }
+            
+            // Settings change alert
+            if showSettingsChangeAlert {
+                SettingsChangeAlert(
+                    message: settingsChangeMessage,
+                    onDismiss: {
+                        showSettingsChangeAlert = false
+                    }
+                )
+            }
         }
     }
     
@@ -517,6 +677,112 @@ struct ContentView: View {
         let seconds = Int(timeInterval) % 60
         let milliseconds = Int((timeInterval.truncatingRemainder(dividingBy: 1)) * 10)
         return String(format: "%02d:%02d.%01d", minutes, seconds, milliseconds)
+    }
+    
+    // Switch camera mode (front only / back only / dual)
+    private func switchCameraMode() {
+        print("🔄 ContentView: Switching camera mode...")
+        
+        let allModes: [CameraMode] = [.dual, .backOnly, .frontOnly]
+        let currentIndex = allModes.firstIndex(of: viewModel.cameraManager.cameraMode) ?? 0
+        let nextIndex = (currentIndex + 1) % allModes.count
+        let newMode = allModes[nextIndex]
+        
+        print("🔄 ContentView: Mode changing from \(viewModel.cameraManager.cameraMode.displayName) to \(newMode.displayName)")
+        
+        // Stop current session
+        viewModel.cameraManager.stopSession()
+        
+        // Update mode
+        viewModel.cameraManager.cameraMode = newMode
+        
+        // Restart session with new mode and force preview rebuild
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            viewModel.cameraManager.setupSession(forceReconfigure: true)
+            previewRefreshID = UUID()
+            print("🔄 ContentView: ✅ Camera mode switched to \(newMode.displayName)")
+        }
+    }
+    
+    // Switch filter (cycle through all filters)
+    private func switchFilter() {
+        let allFilters = FilterStyle.allCases
+        let currentIndex = allFilters.firstIndex(of: viewModel.cameraManager.currentFilter) ?? 0
+        let nextIndex = (currentIndex + 1) % allFilters.count
+        let nextFilter = allFilters[nextIndex]
+        
+        print("🎨 ContentView: Switching filter from \(viewModel.cameraManager.currentFilter.displayName) to \(nextFilter.displayName)")
+        
+        // Direct assignment without animation for instant response
+        viewModel.cameraManager.currentFilter = nextFilter
+        
+        // Provide haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+        
+        print("🎨 ContentView: ✅ Filter switched to \(nextFilter.displayName)")
+    }
+    
+    // Handle resolution change
+    private func handleResolutionChange(_ resolution: VideoResolution) {
+        viewModel.cameraManager.setResolution(resolution)
+        
+        settingsChangeMessage = "分辨率：\(resolution.displayName)"
+        withAnimation {
+            showSettingsChangeAlert = true
+        }
+    }
+    
+    // Handle frame rate change
+    private func handleFrameRateChange(_ frameRate: FrameRate) {
+        viewModel.cameraManager.setFrameRate(frameRate)
+        
+        settingsChangeMessage = "帧率：\(frameRate.displayName)"
+        withAnimation {
+            showSettingsChangeAlert = true
+        }
+    }
+    
+    // Handle tap to focus
+    private func handleTapToFocus(at location: CGPoint) {
+        print("👆 ContentView: Tap to focus at (\(location.x), \(location.y))")
+        
+        // Get screen bounds
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first else {
+            print("⚠️ ContentView: Could not get window bounds")
+            return
+        }
+        
+        let screenSize = window.bounds.size
+        
+        // Convert tap location to normalized coordinates (0.0 to 1.0)
+        // Camera coordinates have origin at top-left
+        let normalizedPoint = CGPoint(
+            x: location.x / screenSize.width,
+            y: location.y / screenSize.height
+        )
+        
+        print("👆 ContentView: Normalized focus point: (\(normalizedPoint.x), \(normalizedPoint.y))")
+        
+        // Show focus indicator at tap location
+        focusPoint = location
+        showFocusIndicator = true
+        
+        // Hide indicator after animation completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            showFocusIndicator = false
+        }
+        
+        // Trigger focus and exposure in camera manager (runs on background queue)
+        viewModel.cameraManager.focusAndExpose(at: normalizedPoint)
+        
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        
+        // User interaction - reset UI hide timer
+        viewModel.uiVisibilityManager.userDidInteract()
     }
 }
 

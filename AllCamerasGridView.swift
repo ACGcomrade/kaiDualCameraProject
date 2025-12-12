@@ -236,12 +236,19 @@ class SingleCameraViewer: ObservableObject {
         
         currentIndex = index
         
-        // Stop current session
+        // CRITICAL: Stop current session SYNCHRONOUSLY to avoid black screen
         if let oldSession = currentSession, oldSession.isRunning {
-            print("📷 Stopping old session")
-            queue.async {
-                oldSession.stopRunning()
+            print("📷 Stopping old session synchronously...")
+            oldSession.stopRunning()
+            print("✅ Old session stopped")
+            
+            // Clear immediately
+            DispatchQueue.main.async {
+                self.currentSession = nil
             }
+            
+            // Brief pause for cleanup
+            Thread.sleep(forTimeInterval: 0.2)
         }
         
         // Start new session
@@ -271,6 +278,43 @@ class SingleCameraViewer: ObservableObject {
         }
         
         do {
+            // CRITICAL: Configure device to disable auto focus/exposure
+            try camera.device.lockForConfiguration()
+            
+            // Disable auto focus to reduce CPU usage (front camera may not support locked)
+            if camera.device.isFocusModeSupported(.locked) {
+                camera.device.focusMode = .locked
+                print("   Auto focus DISABLED (locked)")
+            } else if camera.device.isFocusModeSupported(.autoFocus) {
+                camera.device.focusMode = .autoFocus
+                print("   Focus mode: autoFocus (locked not supported)")
+            }
+            
+            // Disable auto exposure
+            if camera.device.isExposureModeSupported(.locked) {
+                camera.device.exposureMode = .locked
+                print("   Auto exposure DISABLED (locked)")
+            } else if camera.device.isExposureModeSupported(.continuousAutoExposure) {
+                camera.device.exposureMode = .continuousAutoExposure
+                print("   Exposure mode: continuousAutoExposure (locked not supported)")
+            }
+            
+            // Disable auto white balance
+            if camera.device.isWhiteBalanceModeSupported(.locked) {
+                camera.device.whiteBalanceMode = .locked
+                print("   Auto white balance DISABLED (locked)")
+            } else if camera.device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                camera.device.whiteBalanceMode = .continuousAutoWhiteBalance
+                print("   White balance: continuousAutoWhiteBalance (locked not supported)")
+            }
+            
+            // Set 15 FPS for lower CPU usage
+            camera.device.activeVideoMinFrameDuration = CMTimeMake(value: 1, timescale: 15)
+            camera.device.activeVideoMaxFrameDuration = CMTimeMake(value: 1, timescale: 15)
+            print("   Frame rate set to 15 FPS")
+            
+            camera.device.unlockForConfiguration()
+            
             // Create input
             let input = try AVCaptureDeviceInput(device: camera.device)
             

@@ -4,6 +4,8 @@ import Combine
 import Photos
 
 class CameraManager: NSObject, ObservableObject {
+    // Shared singleton for lightweight preview consumers
+    static let shared = CameraManager()
     // MARK: - Properties
     @Published var session: AVCaptureMultiCamSession?
     private let sessionQueue = DispatchQueue(label: "sessionQueue")
@@ -11,15 +13,23 @@ class CameraManager: NSObject, ObservableObject {
     private let frontVideoDataQueue = DispatchQueue(label: "frontVideoDataQueue")
     private let audioDataQueue = DispatchQueue(label: "audioDataQueue")
     private let settings = CameraSettings.shared
+    // Reusable CIContext for converting sample buffers to UIImage (expensive to create repeatedly)
+    private let ciContext = CIContext()
+    // How many frames between published preview image updates (reduce CPU by updating less frequently)
+    private let previewFrameInterval = 6
     
     @Published var capturedBackImage: UIImage? = nil
     @Published var capturedFrontImage: UIImage? = nil
     @Published var isFlashOn = false
     @Published var isDualCameraMode = true
+    @Published var cameraMode: CameraMode = .dual  // Current camera mode
+    @Published var currentFilter: FilterStyle = .none  // Current filter style
     @Published var isSessionRunning = false
     @Published var isRecording = false
     @Published var recordingDuration: TimeInterval = 0
     @Published var zoomFactor: CGFloat = 1.0
+    @Published var currentResolution: VideoResolution = .resolution_1080p  // Current video resolution
+    @Published var currentFrameRate: FrameRate = .fps_30  // Current frame rate
     
     var backCameraInput: AVCaptureDeviceInput?
     var frontCameraInput: AVCaptureDeviceInput?
@@ -86,11 +96,11 @@ class CameraManager: NSObject, ObservableObject {
     }
     
     // MARK: - Multi-Camera Session Setup
-    func setupSession() {
-        print("🎥 CameraManager: setupSession called")
+    func setupSession(forceReconfigure: Bool = false) {
+        print("🎥 CameraManager: setupSession called (forceReconfigure: \(forceReconfigure))")
         
-        // OPTIMIZATION: Only configure once!
-        if isSessionConfigured && session != nil {
+        // OPTIMIZATION: Only configure once unless forced!
+        if !forceReconfigure && isSessionConfigured && session != nil {
             print("✅ CameraManager: Session already configured - reusing existing session")
             
             if !session!.isRunning {
@@ -105,6 +115,13 @@ class CameraManager: NSObject, ObservableObject {
                 print("✅ CameraManager: Session already running")
             }
             return
+        }
+        
+        // Force reconfiguration if mode changed
+        if forceReconfigure {
+            print("🔄 CameraManager: Forcing session reconfiguration for mode: \(cameraMode.displayName)")
+            isSessionConfigured = false
+            session = nil
         }
         
         guard !isConfiguringSession else {
@@ -132,14 +149,19 @@ class CameraManager: NSObject, ObservableObject {
     }
     
     private func configureSession() {
-        print("🎥 CameraManager: configureSession called")
+        print("🎥 CameraManager: configureSession called for mode: \(cameraMode.displayName)")
         
         let newSession = AVCaptureMultiCamSession()
         newSession.beginConfiguration()
         
+        // Setup cameras based on mode
+        let shouldSetupBack = (cameraMode == .backOnly || cameraMode == .dual)
+        let shouldSetupFront = (cameraMode == .frontOnly || cameraMode == .dual)
+        
         // Setup back camera with best available camera (ultra-wide if available)
-        print("📷 CameraManager: Setting up back camera...")
-        if let backCamera = getBestBackCamera() {
+        if shouldSetupBack {
+            print("📷 CameraManager: Setting up back camera...")
+            if let backCamera = getBestBackCamera() {
             print("📷 CameraManager: Using back camera: \(backCamera.localizedName)")
             print("   Device type: \(backCamera.deviceType.rawValue)")
             print("   Zoom range: \(backCamera.minAvailableVideoZoomFactor)x - \(backCamera.maxAvailableVideoZoomFactor)x")
@@ -197,13 +219,15 @@ class CameraManager: NSObject, ObservableObject {
             } catch {
                 print("❌ CameraManager: Back camera setup failed: \(error.localizedDescription)")
             }
-        } else {
-            print("❌ CameraManager: Could not get back camera device")
+            } else {
+                print("❌ CameraManager: Could not get back camera device")
+            }
         }
         
         // Setup front camera with video data output
-        print("📷 CameraManager: Setting up front camera...")
-        if let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) {
+        if shouldSetupFront {
+            print("📷 CameraManager: Setting up front camera...")
+            if let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) {
             print("📷 CameraManager: Front camera device found: \(frontCamera.localizedName)")
             do {
                 let frontInput = try AVCaptureDeviceInput(device: frontCamera)
@@ -243,8 +267,9 @@ class CameraManager: NSObject, ObservableObject {
             } catch {
                 print("❌ CameraManager: Front camera setup failed: \(error.localizedDescription)")
             }
-        } else {
-            print("❌ CameraManager: Could not get front camera device")
+            } else {
+                print("❌ CameraManager: Could not get front camera device")
+            }
         }
         
         // Setup audio input with audio data output
@@ -483,10 +508,16 @@ class CameraManager: NSObject, ObservableObject {
             return nil
         }
         
-        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
-        let context = CIContext()
+        // Create CIImage from pixel buffer
+        var ciImage = CIImage(cvPixelBuffer: imageBuffer)
         
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+        // Apply filter BEFORE converting to CGImage for better performance
+        if currentFilter != .none {
+            ciImage = currentFilter.apply(to: ciImage)
+        }
+        
+        // Convert to CGImage
+        guard let cgImage = self.ciContext.createCGImage(ciImage, from: ciImage.extent) else {
             return nil
         }
         
@@ -967,6 +998,172 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
     
+    // MARK: - Focus and Exposure Control
+    /// Focus and expose at a point in the preview (tap to focus)
+    /// - Parameter point: Normalized point (0.0 to 1.0) in preview coordinates
+    func focusAndExpose(at point: CGPoint) {
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Get the appropriate device based on camera mode
+            let device: AVCaptureDevice?
+            switch self.cameraMode {
+            case .backOnly, .dual:
+                device = self.backCameraInput?.device
+            case .frontOnly:
+                device = self.frontCameraInput?.device
+            }
+            
+            guard let captureDevice = device else {
+                print("⚠️ CameraManager: No camera device available for focus")
+                return
+            }
+            
+            do {
+                try captureDevice.lockForConfiguration()
+                
+                // Set focus point of interest if supported
+                if captureDevice.isFocusPointOfInterestSupported {
+                    captureDevice.focusPointOfInterest = point
+                    
+                    // Use auto focus mode for smooth focusing
+                    if captureDevice.isFocusModeSupported(.autoFocus) {
+                        captureDevice.focusMode = .autoFocus
+                    } else if captureDevice.isFocusModeSupported(.continuousAutoFocus) {
+                        captureDevice.focusMode = .continuousAutoFocus
+                    }
+                    
+                    print("📸 CameraManager: Focus point set to (\(point.x), \(point.y))")
+                }
+                
+                // Set exposure point of interest if supported
+                if captureDevice.isExposurePointOfInterestSupported {
+                    captureDevice.exposurePointOfInterest = point
+                    
+                    // Use auto exposure mode
+                    if captureDevice.isExposureModeSupported(.autoExpose) {
+                        captureDevice.exposureMode = .autoExpose
+                    } else if captureDevice.isExposureModeSupported(.continuousAutoExposure) {
+                        captureDevice.exposureMode = .continuousAutoExposure
+                    }
+                    
+                    print("📸 CameraManager: Exposure point set to (\(point.x), \(point.y))")
+                }
+                
+                captureDevice.unlockForConfiguration()
+                
+                print("✅ CameraManager: Focus and exposure completed")
+            } catch {
+                print("❌ CameraManager: Failed to set focus/exposure: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    // MARK: - Video Settings (Resolution & Frame Rate)
+    /// Update video resolution
+    func setResolution(_ resolution: VideoResolution) {
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            print("🎬 CameraManager: Changing resolution to \(resolution.displayName)")
+            
+            // Get back camera device
+            guard let device = self.backCameraInput?.device else {
+                print("⚠️ CameraManager: No back camera device for resolution change")
+                return
+            }
+            
+            do {
+                try device.lockForConfiguration()
+                
+                // Find best format matching the desired resolution
+                let targetDimensions = resolution.dimensions
+                var bestFormat: AVCaptureDevice.Format?
+                var smallestDiff = Int.max
+                
+                for format in device.formats {
+                    let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                    let widthDiff = abs(Int(dimensions.width) - Int(targetDimensions.width))
+                    let heightDiff = abs(Int(dimensions.height) - Int(targetDimensions.height))
+                    let totalDiff = widthDiff + heightDiff
+                    
+                    // Prefer multi-cam compatible formats
+                    if format.isMultiCamSupported && totalDiff < smallestDiff {
+                        bestFormat = format
+                        smallestDiff = totalDiff
+                    }
+                }
+                
+                if let format = bestFormat {
+                    device.activeFormat = format
+                    let actualDimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                    print("✅ CameraManager: Resolution set to \(actualDimensions.width)x\(actualDimensions.height)")
+                    
+                    DispatchQueue.main.async {
+                        self.currentResolution = resolution
+                    }
+                } else {
+                    print("⚠️ CameraManager: No suitable format found for \(resolution.displayName)")
+                }
+                
+                device.unlockForConfiguration()
+            } catch {
+                print("❌ CameraManager: Failed to set resolution: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    /// Update frame rate
+    func setFrameRate(_ frameRate: FrameRate) {
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            print("🎬 CameraManager: Changing frame rate to \(frameRate.displayName)")
+            
+            // Get back camera device
+            guard let device = self.backCameraInput?.device else {
+                print("⚠️ CameraManager: No back camera device for frame rate change")
+                return
+            }
+            
+            do {
+                try device.lockForConfiguration()
+                
+                let targetFPS = Double(frameRate.rawValue)
+                
+                // Check if current format supports the frame rate
+                let currentFormat = device.activeFormat
+                let ranges = currentFormat.videoSupportedFrameRateRanges
+                
+                var supportedRange: AVFrameRateRange?
+                for range in ranges {
+                    if targetFPS >= range.minFrameRate && targetFPS <= range.maxFrameRate {
+                        supportedRange = range
+                        break
+                    }
+                }
+                
+                if let _ = supportedRange {
+                    device.activeVideoMinFrameDuration = CMTimeMake(value: 1, timescale: Int32(targetFPS))
+                    device.activeVideoMaxFrameDuration = CMTimeMake(value: 1, timescale: Int32(targetFPS))
+                    
+                    print("✅ CameraManager: Frame rate set to \(targetFPS) FPS")
+                    
+                    DispatchQueue.main.async {
+                        self.currentFrameRate = frameRate
+                    }
+                } else {
+                    print("⚠️ CameraManager: Frame rate \(targetFPS) FPS not supported by current format")
+                    print("   Available ranges: \(ranges.map { "\($0.minFrameRate)-\($0.maxFrameRate)" }.joined(separator: ", "))")
+                }
+                
+                device.unlockForConfiguration()
+            } catch {
+                print("❌ CameraManager: Failed to set frame rate: \(error.localizedDescription)")
+            }
+        }
+    }
+    
     // MARK: - Photo Library Saving
     func savePhotoToLibrary(_ image: UIImage, completion: @escaping (Bool, Error?) -> Void) {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
@@ -1024,6 +1221,15 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                         print("📹 CameraManager: Received \(backFrameCount) back camera frames")
                     }
                     frameLock.unlock()
+
+                    // Publish a lightweight preview image at a reduced rate to save CPU
+                    if backFrameCount % previewFrameInterval == 0 {
+                        if let previewImage = self.imageFromSampleBuffer(sampleBuffer) {
+                            DispatchQueue.main.async {
+                                self.capturedBackImage = previewImage
+                            }
+                        }
+                    }
                     
                     // Write to video file if recording
                     if isRecording, let videoInput = backVideoWriterInput, videoInput.isReadyForMoreMediaData {
@@ -1055,6 +1261,15 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                         print("📹 CameraManager: Received \(frontFrameCount) front camera frames")
                     }
                     frameLock.unlock()
+
+                    // Publish a lightweight preview image at a reduced rate to save CPU
+                    if frontFrameCount % previewFrameInterval == 0 {
+                        if let previewImage = self.imageFromSampleBuffer(sampleBuffer) {
+                            DispatchQueue.main.async {
+                                self.capturedFrontImage = previewImage
+                            }
+                        }
+                    }
                     
                     // Write to video file if recording
                     if isRecording, let videoInput = frontVideoWriterInput, videoInput.isReadyForMoreMediaData {

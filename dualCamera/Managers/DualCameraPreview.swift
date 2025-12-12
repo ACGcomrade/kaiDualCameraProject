@@ -99,11 +99,21 @@ struct DualCameraPreview: UIViewRepresentable {
             print("✅ DualCameraPreview: Views set up")
         }
         
+        var currentCameraMode: CameraMode = .dual  // Will be set externally
+        var currentFilter: FilterStyle = .none  // Current filter style
+        
         override func layoutSubviews() {
             super.layoutSubviews()
             
             // Back camera always fills the screen
             backImageView?.frame = bounds
+            
+            // Hide PIP in single camera mode
+            if currentCameraMode != .dual {
+                frontContainerView?.isHidden = true
+                return
+            }
+            frontContainerView?.isHidden = false
             
             // Get device orientation to adjust PIP position
             let isLandscape = bounds.width > bounds.height
@@ -149,11 +159,19 @@ struct DualCameraPreview: UIViewRepresentable {
         func updateBackFrame(_ image: UIImage?) {
             guard let image = image else { return }
             
+            // Filter is already applied in CameraManager.imageFromSampleBuffer
             // Store the latest frame WITHOUT rotation (save CPU!)
             latestBackImage = image
             
             DispatchQueue.main.async {
-                // Display based on switcher state
+                // In single camera mode, always show in main view
+                if self.currentCameraMode == .backOnly {
+                    self.backImageView?.image = image
+                    self.updateImageViewTransform(self.backImageView, isFrontCamera: false)
+                    return
+                }
+                
+                // Display based on switcher state in dual mode
                 if self.previewSwitcher.isBackCameraMain {
                     // Back camera is main (large preview)
                     // Use layer transform instead of CPU image rotation
@@ -172,11 +190,19 @@ struct DualCameraPreview: UIViewRepresentable {
                 return 
             }
             
+            // Filter is already applied in CameraManager.imageFromSampleBuffer
             // Store the latest frame WITHOUT rotation (save CPU!)
             latestFrontImage = image
             
             DispatchQueue.main.async {
-                // Display based on switcher state
+                // In single camera mode, always show in main view
+                if self.currentCameraMode == .frontOnly {
+                    self.backImageView?.image = image  // Use backImageView as main view
+                    self.updateImageViewTransform(self.backImageView, isFrontCamera: true)
+                    return
+                }
+                
+                // Display based on switcher state in dual mode
                 if self.previewSwitcher.isBackCameraMain {
                     // Front camera is PIP (small preview)
                     self.frontImageView?.image = image
@@ -324,8 +350,15 @@ struct DualCameraPreview: UIViewRepresentable {
         print("🖼️ DualCameraPreview: makeUIView called")
         let view = PreviewView(frame: .zero)
         
+        // Set current camera mode and filter
+        view.currentCameraMode = viewModel.cameraManager.cameraMode
+        view.currentFilter = viewModel.cameraManager.currentFilter
+        print("🖼️ DualCameraPreview: Camera mode set to \(viewModel.cameraManager.cameraMode.displayName)")
+        print("🖼️ DualCameraPreview: Filter set to \(viewModel.cameraManager.currentFilter.displayName)")
+        
         // Subscribe to frame updates from CameraManager
-        let timer = Timer.publish(every: 1.0/30.0, on: .main, in: .common)
+        // Use 60fps refresh rate for smooth preview (independent of recording frame rate)
+        let timer = Timer.publish(every: 1.0/60.0, on: .main, in: .common)
             .autoconnect()
             .sink { _ in
                 // Get latest frames and display them
@@ -342,6 +375,23 @@ struct DualCameraPreview: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: PreviewView, context: Context) {
+        // Update camera mode if it changed
+        if uiView.currentCameraMode != viewModel.cameraManager.cameraMode {
+            uiView.currentCameraMode = viewModel.cameraManager.cameraMode
+            uiView.setNeedsLayout()  // Force layout update to show/hide PIP
+        }
+        
+        // Update filter if it changed - force immediate frame refresh
+        if uiView.currentFilter != viewModel.cameraManager.currentFilter {
+            uiView.currentFilter = viewModel.cameraManager.currentFilter
+            print("🎨 DualCameraPreview: Filter updated to \(viewModel.cameraManager.currentFilter.displayName)")
+            
+            // Force immediate frame update with new filter
+            viewModel.cameraManager.getLatestFrames { backImage, frontImage in
+                uiView.updateBackFrame(backImage)
+                uiView.updateFrontFrame(frontImage)
+            }
+        }
     }
     
     static func dismantleUIView(_ uiView: PreviewView, coordinator: Coordinator) {
