@@ -253,20 +253,21 @@ class CameraViewModel: ObservableObject {
         }
         
         cameraManager.captureDualPhotos(withFlash: shouldFlash) { [weak self] backImage, frontImage in
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
                 print("📸 ViewModel: Received back image: \(backImage != nil)")
                 print("📸 ViewModel: Received front image: \(frontImage != nil)")
                 
-                self?.capturedBackImage = backImage
-                self?.capturedFrontImage = frontImage
+                self.capturedBackImage = backImage
+                self.capturedFrontImage = frontImage
                 
                 // Update last captured image for gallery button (prefer back camera)
-                self?.lastCapturedImage = backImage ?? frontImage
+                self.lastCapturedImage = backImage ?? frontImage
                 
                 // Automatically save both images to photo library
                 if backImage != nil || frontImage != nil {
                     print("📸 ViewModel: Starting save process...")
-                    self?.savePhotosToLibrary()
+                    self.savePhotosToLibrary()
                 } else {
                     print("❌ ViewModel: No images captured!")
                 }
@@ -282,18 +283,15 @@ class CameraViewModel: ObservableObject {
         let originalBrightness = UIScreen.main.brightness
         
         // Show white screen and max brightness
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             UIScreen.main.brightness = 1.0
             self.showScreenFlash = true
             
-            // Hide after 0.15 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                self.showScreenFlash = false
-                
-                // Restore original brightness after 0.3 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    UIScreen.main.brightness = originalBrightness
-                }
+            // Hide and restore brightness after 0.15 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.showScreenFlash = false
+                UIScreen.main.brightness = originalBrightness
             }
         }
     }
@@ -605,7 +603,7 @@ class CameraViewModel: ObservableObject {
         if let backImage = backImage {
             group.enter()
             print("📸 ViewModel: Saving back camera image...")
-            cameraManager.savePhotoToLibrary(backImage) { success, error in
+            cameraManager.savePhotoToLibrary(backImage, isFrontCamera: false) { success, error in
                 if success {
                     print("✅ ViewModel: Back camera photo saved")
                     savedCount += 1
@@ -621,7 +619,7 @@ class CameraViewModel: ObservableObject {
         if let frontImage = frontImage {
             group.enter()
             print("📸 ViewModel: Saving front camera image...")
-            cameraManager.savePhotoToLibrary(frontImage) { success, error in
+            cameraManager.savePhotoToLibrary(frontImage, isFrontCamera: true) { success, error in
                 if success {
                     print("✅ ViewModel: Front camera photo saved")
                     savedCount += 1

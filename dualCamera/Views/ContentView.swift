@@ -636,11 +636,19 @@ struct ContentView: View {
             if showResolutionPicker {
                 PickerOverlay(
                     title: "选择分辨率",
-                    options: VideoResolution.allCases,
+                    options: VideoResolution.getSupportedResolutions(),
                     selection: $selectedResolution,
-                    onDismiss: {
+                    onConfirm: {
+                        // Only apply if different from current
+                        if selectedResolution != viewModel.cameraManager.currentResolution {
+                            handleResolutionChange(selectedResolution)
+                        }
                         showResolutionPicker = false
-                        handleResolutionChange(selectedResolution)
+                    },
+                    onCancel: {
+                        // Reset to current value and close
+                        selectedResolution = viewModel.cameraManager.currentResolution
+                        showResolutionPicker = false
                     },
                     displayName: { $0.displayName }
                 )
@@ -650,11 +658,19 @@ struct ContentView: View {
             if showFrameRatePicker {
                 FrameRatePickerOverlay(
                     title: "选择帧率",
-                    options: FrameRate.allCases,
+                    options: FrameRate.getSupportedFrameRates(),
                     selection: $selectedFrameRate,
-                    onDismiss: {
+                    onConfirm: {
+                        // Only apply if different from current
+                        if selectedFrameRate != viewModel.cameraManager.currentFrameRate {
+                            handleFrameRateChange(selectedFrameRate)
+                        }
                         showFrameRatePicker = false
-                        handleFrameRateChange(selectedFrameRate)
+                    },
+                    onCancel: {
+                        // Reset to current value and close
+                        selectedFrameRate = viewModel.cameraManager.currentFrameRate
+                        showFrameRatePicker = false
                     }
                 )
             }

@@ -5,16 +5,17 @@ struct PickerOverlay<T: Hashable & CaseIterable>: View where T: RawRepresentable
     let title: String
     let options: [T]
     @Binding var selection: T
-    let onDismiss: () -> Void
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
     let displayName: (T) -> String
     
     var body: some View {
         ZStack {
-            // Semi-transparent background
+            // Semi-transparent background - tap to cancel
             Color.black.opacity(0.4)
                 .ignoresSafeArea()
                 .onTapGesture {
-                    onDismiss()
+                    onCancel()
                 }
             
             // Picker card
@@ -39,14 +40,27 @@ struct PickerOverlay<T: Hashable & CaseIterable>: View where T: RawRepresentable
                 .frame(height: 180)
                 .background(Color.black.opacity(0.9))
                 
-                // Confirm button
-                Button(action: onDismiss) {
-                    Text("确定")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
+                // Buttons
+                HStack(spacing: 0) {
+                    // Cancel button - dismisses without changing
+                    Button(action: onCancel) {
+                        Text("取消")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.gray.opacity(0.8))
+                    }
+                    
+                    // Confirm button - dismisses and applies selection
+                    Button(action: onConfirm) {
+                        Text("确定")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                    }
                 }
             }
             .frame(width: 280)
@@ -61,15 +75,16 @@ struct FrameRatePickerOverlay: View {
     let title: String
     let options: [FrameRate]
     @Binding var selection: FrameRate
-    let onDismiss: () -> Void
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
     
     var body: some View {
         ZStack {
-            // Semi-transparent background
+            // Semi-transparent background - tap to cancel
             Color.black.opacity(0.4)
                 .ignoresSafeArea()
                 .onTapGesture {
-                    onDismiss()
+                    onCancel()
                 }
             
             // Picker card
@@ -94,14 +109,27 @@ struct FrameRatePickerOverlay: View {
                 .frame(height: 180)
                 .background(Color.black.opacity(0.9))
                 
-                // Confirm button
-                Button(action: onDismiss) {
-                    Text("确定")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
+                // Buttons
+                HStack(spacing: 0) {
+                    // Cancel button - dismisses without changing
+                    Button(action: onCancel) {
+                        Text("取消")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.gray.opacity(0.8))
+                    }
+                    
+                    // Confirm button - dismisses and applies selection
+                    Button(action: onConfirm) {
+                        Text("确定")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                    }
                 }
             }
             .frame(width: 280)
@@ -122,7 +150,8 @@ struct FrameRatePickerOverlay: View {
                     title: "选择分辨率",
                     options: VideoResolution.allCases,
                     selection: $selection,
-                    onDismiss: {},
+                    onConfirm: { },
+                    onCancel: { },
                     displayName: { $0.displayName }
                 )
             }
@@ -141,9 +170,10 @@ struct FrameRatePickerOverlay: View {
                 Color.gray
                 FrameRatePickerOverlay(
                     title: "选择帧率",
-                    options: FrameRate.allCases,
+                    options: FrameRate.getSupportedFrameRates(),
                     selection: $selection,
-                    onDismiss: {}
+                    onConfirm: { },
+                    onCancel: { }
                 )
             }
         }
