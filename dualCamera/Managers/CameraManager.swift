@@ -9,14 +9,19 @@ class CameraManager: NSObject, ObservableObject {
     // MARK: - Properties
     @Published var session: AVCaptureMultiCamSession?
     private let sessionQueue = DispatchQueue(label: "sessionQueue", qos: .userInitiated)
-    private let backVideoDataQueue = DispatchQueue(label: "backVideoDataQueue", qos: .userInitiated)
-    private let frontVideoDataQueue = DispatchQueue(label: "frontVideoDataQueue", qos: .userInitiated)
+    private let backVideoDataQueue = DispatchQueue(label: "backVideoDataQueue", qos: .default)  // Balanced performance/efficiency
+    private let frontVideoDataQueue = DispatchQueue(label: "frontVideoDataQueue", qos: .default)  // Balanced performance/efficiency
     private let audioDataQueue = DispatchQueue(label: "audioDataQueue", qos: .utility)
+    private let rotationQueue = DispatchQueue(label: "videoRotationQueue", qos: .userInitiated, attributes: .concurrent)  // High priority for rotation
     private let settings = CameraSettings.shared
     // Reusable CIContext for converting sample buffers to UIImage (expensive to create repeatedly)
-    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])  // Use GPU for better performance
+    private let ciContext = CIContext(options: [
+        .useSoftwareRenderer: false,  // Use GPU for better performance
+        .priorityRequestLow: true,     // Lower priority for battery saving
+        .cacheIntermediates: false     // Don't cache to save memory
+    ])
     // How many frames between published preview image updates (reduce CPU by updating less frequently)
-    private let previewFrameInterval = 8  // Increased from 6 to reduce CPU load by ~30%
+    private let previewFrameInterval = 12  // Optimized for better battery life (updates ~2.5 times per second at 30fps)
     
     @Published var capturedBackImage: UIImage? = nil
     @Published var capturedFrontImage: UIImage? = nil
@@ -55,6 +60,7 @@ class CameraManager: NSObject, ObservableObject {
     private var frontVideoWriterInput: AVAssetWriterInput?
     private var audioWriterInput: AVAssetWriterInput?
     private var recordingStartTime: CMTime?
+    private var recordingOrientation: UIDeviceOrientation = .portrait  // Store orientation for pixel rotation
     private var recordingTimer: Timer?
     private var backOutputURL: URL?
     private var frontOutputURL: URL?
@@ -191,6 +197,10 @@ class CameraManager: NSObject, ObservableObject {
                 ]
                 backVideoOutput.setSampleBufferDelegate(self, queue: backVideoDataQueue)
                 backVideoOutput.alwaysDiscardsLateVideoFrames = true
+                // Optimize for lower memory footprint
+                if #available(iOS 17.0, *) {
+                    backVideoOutput.automaticallyConfiguresOutputBufferDimensions = true
+                }
                 
                 if newSession.canAddOutput(backVideoOutput) {
                     newSession.addOutput(backVideoOutput)
@@ -256,6 +266,10 @@ class CameraManager: NSObject, ObservableObject {
                 ]
                 frontVideoOutput.setSampleBufferDelegate(self, queue: frontVideoDataQueue)
                 frontVideoOutput.alwaysDiscardsLateVideoFrames = true
+                // Optimize for lower memory footprint
+                if #available(iOS 17.0, *) {
+                    frontVideoOutput.automaticallyConfiguresOutputBufferDimensions = true
+                }
                 
                 if newSession.canAddOutput(frontVideoOutput) {
                     newSession.addOutput(frontVideoOutput)
@@ -526,56 +540,188 @@ class CameraManager: NSObject, ObservableObject {
     }
     
     // MARK: - Orientation Helpers
+    // Rotate sample buffer's pixel data for proper orientation
+    private func rotateSampleBufferIfNeeded(_ sampleBuffer: CMSampleBuffer, orientation: UIDeviceOrientation, isFrontCamera: Bool) -> CMSampleBuffer {
+        // Check if rotation is needed
+        let needsRotation = orientation == .portrait || orientation == .portraitUpsideDown
+        let needsFrontFlip = isFrontCamera && (orientation == .landscapeLeft || orientation == .landscapeRight)
+        
+        guard needsRotation || needsFrontFlip else {
+            return sampleBuffer
+        }
+        
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            print("⚠️ Failed to get image buffer from sample")
+            return sampleBuffer
+        }
+        
+        // Create CIImage from pixel buffer
+        var ciImage = CIImage(cvPixelBuffer: imageBuffer)
+        let originalExtent = ciImage.extent
+        
+        // Calculate center for transformations
+        let centerX = originalExtent.midX
+        let centerY = originalExtent.midY
+        
+        var transform = CGAffineTransform.identity
+        
+        if needsRotation {
+            // Portrait orientations: rotate 90 degrees
+            let rotationAngle: CGFloat = (orientation == .portrait) ? -.pi / 2 : .pi / 2
+            
+            // Rotate around center
+            transform = CGAffineTransform(translationX: centerX, y: centerY)
+            transform = transform.rotated(by: rotationAngle)
+            transform = transform.translatedBy(x: -centerX, y: -centerY)
+            
+            ciImage = ciImage.transformed(by: transform)
+            
+            // Apply mirror for front camera AFTER rotation
+            if isFrontCamera {
+                let mirrorTransform = CGAffineTransform(scaleX: -1, y: 1)
+                    .translatedBy(x: -ciImage.extent.width, y: 0)
+                ciImage = ciImage.transformed(by: mirrorTransform)
+            }
+        } else if needsFrontFlip {
+            // Landscape: front camera needs 180 degree flip (upside down correction)
+            transform = CGAffineTransform(translationX: centerX, y: centerY)
+            transform = transform.rotated(by: .pi)  // 180 degrees
+            transform = transform.translatedBy(x: -centerX, y: -centerY)
+            ciImage = ciImage.transformed(by: transform)
+        }
+        
+        // Normalize extent to start at origin (0,0)
+        let normalizedExtent = CGRect(x: 0, y: 0, width: ciImage.extent.width, height: ciImage.extent.height)
+        ciImage = ciImage.transformed(by: CGAffineTransform(translationX: -ciImage.extent.minX, y: -ciImage.extent.minY))
+        
+        // Determine new dimensions based on orientation
+        let originalWidth = CVPixelBufferGetWidth(imageBuffer)
+        let originalHeight = CVPixelBufferGetHeight(imageBuffer)
+        let newWidth = needsRotation ? originalHeight : originalWidth  // Swap for portrait only
+        let newHeight = needsRotation ? originalWidth : originalHeight
+        
+        var rotatedPixelBuffer: CVPixelBuffer?
+        let pixelBufferAttributes: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary
+        ]
+        
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            newWidth,
+            newHeight,
+            kCVPixelFormatType_32BGRA,
+            pixelBufferAttributes as CFDictionary,
+            &rotatedPixelBuffer
+        )
+        
+        guard status == kCVReturnSuccess, let outputBuffer = rotatedPixelBuffer else {
+            print("⚠️ Failed to create rotated pixel buffer: \(status)")
+            return sampleBuffer
+        }
+        
+        // Render rotated image to new buffer at origin (uses GPU acceleration)
+        autoreleasepool {
+            ciContext.render(ciImage, to: outputBuffer, bounds: normalizedExtent, colorSpace: CGColorSpaceCreateDeviceRGB())
+        }
+        
+        // Create new sample buffer with rotated pixel buffer
+        var newSampleBuffer: CMSampleBuffer?
+        var timingInfo = CMSampleTimingInfo()
+        timingInfo.presentationTimeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        timingInfo.duration = CMSampleBufferGetDuration(sampleBuffer)
+        timingInfo.decodeTimeStamp = CMSampleBufferGetDecodeTimeStamp(sampleBuffer)
+        
+        var formatDescription: CMFormatDescription?
+        let formatStatus = CMVideoFormatDescriptionCreateForImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: outputBuffer,
+            formatDescriptionOut: &formatDescription
+        )
+        
+        guard formatStatus == noErr, let format = formatDescription else {
+            print("⚠️ Failed to create format description: \(formatStatus)")
+            return sampleBuffer
+        }
+        
+        let sampleBufferStatus = CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: outputBuffer,
+            formatDescription: format,
+            sampleTiming: &timingInfo,
+            sampleBufferOut: &newSampleBuffer
+        )
+        
+        guard sampleBufferStatus == noErr, let rotatedSample = newSampleBuffer else {
+            print("⚠️ Failed to create rotated sample buffer: \(sampleBufferStatus)")
+            return sampleBuffer
+        }
+        
+        return rotatedSample
+    }
+    
     private func getVideoTransform(isFrontCamera: Bool, orientation: UIDeviceOrientation) -> CGAffineTransform {
         var transform = CGAffineTransform.identity
         
-        // AVAssetWriterInput的transform需要设置为逆时针旋转角度来修正视频方向
+        // AVAssetWriter transform说明：
+        // - 相机原始输出：LandscapeRight（横向，home键在右）
+        // - Transform告诉播放器如何变换这个横向视频
+        // - 竖屏拍摄时，需要顺时针90度（.pi/2）让播放器正确显示
         
         if isFrontCamera {
-            // Front camera needs horizontal mirroring + rotation
+            // Front camera: 先镜像后旋转（在旋转后的坐标系镜像）
             switch orientation {
             case .portrait:
-                // 竖屏：逆时针90度 + 水平镜像
-                transform = CGAffineTransform(rotationAngle: -.pi / 2)
-                transform = transform.scaledBy(x: -1, y: 1)
-            case .portraitUpsideDown:
-                // 倒竖屏：顺时针90度 + 水平镜像
-                transform = CGAffineTransform(rotationAngle: .pi / 2)
-                transform = transform.scaledBy(x: -1, y: 1)
-            case .landscapeLeft:
-                // 横屏左：180度 + 水平镜像
-                transform = CGAffineTransform(rotationAngle: .pi)
-                transform = transform.scaledBy(x: -1, y: 1)
-            case .landscapeRight:
-                // 横屏右：不旋转 + 水平镜像
+                // 竖屏：顺时针90度 + 镜像
                 transform = CGAffineTransform(scaleX: -1, y: 1)
+                transform = transform.rotated(by: .pi / 2)
+                print("🎥 Front Portrait: Mirror + 90° CW")
+            case .portraitUpsideDown:
+                // 倒竖屏：逆时针90度 + 镜像
+                transform = CGAffineTransform(scaleX: -1, y: 1)
+                transform = transform.rotated(by: -.pi / 2)
+                print("🎥 Front Portrait Upside Down: Mirror + 90° CCW")
+            case .landscapeLeft:
+                // 横屏左：镜像
+                transform = CGAffineTransform(scaleX: -1, y: 1)
+                print("🎥 Front Landscape Left: Mirror only")
+            case .landscapeRight:
+                // 横屏右：180度 + 镜像
+                transform = CGAffineTransform(scaleX: -1, y: 1)
+                transform = transform.rotated(by: .pi)
+                print("🎥 Front Landscape Right: Mirror + 180°")
             default:
-                // 默认竖屏
-                transform = CGAffineTransform(rotationAngle: -.pi / 2)
-                transform = transform.scaledBy(x: -1, y: 1)
+                transform = CGAffineTransform(scaleX: -1, y: 1)
+                transform = transform.rotated(by: .pi / 2)
+                print("🎥 Front Default: Mirror + 90° CW")
             }
         } else {
-            // Back camera - rotate counter-clockwise to correct orientation
+            // Back camera - 只旋转
             switch orientation {
             case .portrait:
-                // 竖屏：逆时针90度
-                transform = CGAffineTransform(rotationAngle: -.pi / 2)
-            case .portraitUpsideDown:
-                // 倒竖屏：顺时针90度
+                // 竖屏：顺时针90度
                 transform = CGAffineTransform(rotationAngle: .pi / 2)
-            case .landscapeLeft:
-                // 横屏左：180度
-                transform = CGAffineTransform(rotationAngle: .pi)
-            case .landscapeRight:
-                // 横屏右：不旋转
-                transform = CGAffineTransform.identity
-            default:
-                // 默认竖屏
+                print("🎥 Back Portrait: 90° CW")
+            case .portraitUpsideDown:
+                // 倒竖屏：逆时针90度
                 transform = CGAffineTransform(rotationAngle: -.pi / 2)
+                print("🎥 Back Portrait Upside Down: 90° CCW")
+            case .landscapeLeft:
+                // 横屏左：不旋转
+                transform = CGAffineTransform.identity
+                print("🎥 Back Landscape Left: No rotation")
+            case .landscapeRight:
+                // 横屏右：180度
+                transform = CGAffineTransform(rotationAngle: .pi)
+                print("🎥 Back Landscape Right: 180°")
+            default:
+                transform = CGAffineTransform(rotationAngle: .pi / 2)
+                print("🎥 Back Default: 90° CW")
             }
         }
         
-        print("🎥 Transform for \(isFrontCamera ? "front" : "back") in \(orientation.rawValue): \(transform)")
+        print("🎥 Transform matrix: [a=\(String(format: "%.2f", transform.a)), b=\(String(format: "%.2f", transform.b)), c=\(String(format: "%.2f", transform.c)), d=\(String(format: "%.2f", transform.d))]")
         return transform
     }
     
@@ -730,22 +876,29 @@ class CameraManager: NSObject, ObservableObject {
                 let backWriter = try AVAssetWriter(url: backURL, fileType: .mov)
                 let dimensions = self.currentResolution.dimensions
                 let fps = self.currentFrameRate.rawValue
+                
+                // For portrait: swap dimensions to create vertical video container (1080x1920)
+                let isPortrait = deviceOrientation == .portrait || deviceOrientation == .portraitUpsideDown
+                let videoWidth = isPortrait ? Int(dimensions.height) : Int(dimensions.width)
+                let videoHeight = isPortrait ? Int(dimensions.width) : Int(dimensions.height)
+                
                 let backVideoSettings: [String: Any] = [
                     AVVideoCodecKey: AVVideoCodecType.h264,
-                    AVVideoWidthKey: Int(dimensions.width),
-                    AVVideoHeightKey: Int(dimensions.height),
+                    AVVideoWidthKey: videoWidth,
+                    AVVideoHeightKey: videoHeight,
                     AVVideoCompressionPropertiesKey: [
-                        AVVideoAverageBitRateKey: Int(dimensions.width) * Int(dimensions.height) * 10,
+                        AVVideoAverageBitRateKey: videoWidth * videoHeight * 6,  // Reduced from 10 for better efficiency
                         AVVideoExpectedSourceFrameRateKey: fps,
-                        AVVideoMaxKeyFrameIntervalKey: fps
+                        AVVideoMaxKeyFrameIntervalKey: fps * 2,  // Allow more GOP flexibility
+                        AVVideoProfileLevelKey: AVVideoProfileLevelH264BaselineAutoLevel  // Baseline profile for efficiency
                     ]
                 ]
-                print("🎥 CameraManager: Creating back writer with \(dimensions.width)x\(dimensions.height) @ \(fps)fps")
+                print("🎥 CameraManager: Creating back writer with \(videoWidth)x\(videoHeight) @ \(fps)fps (portrait: \(isPortrait))")
                 let backVideoInput = AVAssetWriterInput(mediaType: .video, outputSettings: backVideoSettings)
                 backVideoInput.expectsMediaDataInRealTime = true
                 
-                // Set transform for back camera based on device orientation
-                backVideoInput.transform = self.getVideoTransform(isFrontCamera: false, orientation: deviceOrientation)
+                // No transform needed - we'll rotate the pixel data itself
+                backVideoInput.transform = CGAffineTransform.identity
                 
                 if backWriter.canAdd(backVideoInput) {
                     backWriter.add(backVideoInput)
@@ -758,19 +911,20 @@ class CameraManager: NSObject, ObservableObject {
                 let frontWriter = try AVAssetWriter(url: frontURL, fileType: .mov)
                 let frontVideoSettings: [String: Any] = [
                     AVVideoCodecKey: AVVideoCodecType.h264,
-                    AVVideoWidthKey: Int(dimensions.width),
-                    AVVideoHeightKey: Int(dimensions.height),
+                    AVVideoWidthKey: videoWidth,
+                    AVVideoHeightKey: videoHeight,
                     AVVideoCompressionPropertiesKey: [
-                        AVVideoAverageBitRateKey: Int(dimensions.width) * Int(dimensions.height) * 10,
+                        AVVideoAverageBitRateKey: videoWidth * videoHeight * 6,  // Reduced from 10 for better efficiency
                         AVVideoExpectedSourceFrameRateKey: fps,
-                        AVVideoMaxKeyFrameIntervalKey: fps
+                        AVVideoMaxKeyFrameIntervalKey: fps * 2,  // Allow more GOP flexibility
+                        AVVideoProfileLevelKey: AVVideoProfileLevelH264BaselineAutoLevel  // Baseline profile for efficiency
                     ]
                 ]
                 let frontVideoInput = AVAssetWriterInput(mediaType: .video, outputSettings: frontVideoSettings)
                 frontVideoInput.expectsMediaDataInRealTime = true
                 
-                // Set transform for front camera based on device orientation
-                frontVideoInput.transform = self.getVideoTransform(isFrontCamera: true, orientation: deviceOrientation)
+                // No transform needed - we'll rotate the pixel data itself
+                frontVideoInput.transform = CGAffineTransform.identity
                 
                 if frontWriter.canAdd(frontVideoInput) {
                     frontWriter.add(frontVideoInput)
@@ -812,6 +966,9 @@ class CameraManager: NSObject, ObservableObject {
                 self.frontWriterSessionStarted = false
                 self.audioWriterSessionStarted = false
                 
+                // Store current orientation for pixel rotation during recording
+                self.recordingOrientation = deviceOrientation
+                
                 print("✅ CameraManager: Recording setup complete!")
                 print("✅ CameraManager: Preview should continue running!")
                 
@@ -850,8 +1007,9 @@ class CameraManager: NSObject, ObservableObject {
             print("🎥 CameraManager: Stopping recording on sessionQueue...")
             
             // Stop recording flag immediately for instant UI feedback
+            // Use synchronous assignment on sessionQueue to ensure thread safety
+            self.isRecording = false
             DispatchQueue.main.async {
-                self.isRecording = false
                 self.recordingTimer?.invalidate()
                 self.recordingTimer = nil
                 print("✅ CameraManager: isRecording set to false, timer stopped")
@@ -945,19 +1103,19 @@ class CameraManager: NSObject, ObservableObject {
                     print("🎥 CameraManager: Front URL: \(finalFrontURL?.path ?? "nil")")
                     print("🎥 CameraManager: Audio URL: \(finalAudioURL?.path ?? "nil")")
                     
+                    // Clean up writers after completion
+                    self.backVideoWriter = nil
+                    self.frontVideoWriter = nil
+                    self.audioWriter = nil
+                    self.backVideoWriterInput = nil
+                    self.frontVideoWriterInput = nil
+                    self.audioWriterInput = nil
+                    self.recordingStartTime = nil
+                    
                     // Return the video and audio URLs via completion
                     completion(finalBackURL, finalFrontURL, finalAudioURL)
                 }
             }
-            
-            // Clean up
-            self.backVideoWriter = nil
-            self.frontVideoWriter = nil
-            self.audioWriter = nil
-            self.backVideoWriterInput = nil
-            self.frontVideoWriterInput = nil
-            self.audioWriterInput = nil
-            self.recordingStartTime = nil
         }
     }
     
@@ -1476,13 +1634,6 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         
-        // DEBUG: Log every call to verify delegate is working
-        var callCount = 0
-        callCount += 1
-        if callCount == 1 {
-            print("🎯 CameraManager: captureOutput DELEGATE CALLED! (first time)")
-        }
-        
         // Determine which camera by checking the connection's input device
         if output is AVCaptureVideoDataOutput {
             // Check camera position through connection
@@ -1492,18 +1643,19 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                 let position = deviceInput.device.position
                 
                 if position == .back {
-                    // Back camera frame
-                    frameLock.lock()
-                    lastBackFrame = sampleBuffer
-                    backFrameCount += 1
-                    if backFrameCount % 30 == 0 {
-                        print("📹 CameraManager: Received \(backFrameCount) back camera frames")
-                    }
-                    frameLock.unlock()
+                    // Back camera frame - wrap in autoreleasepool for better memory management
+                    autoreleasepool {
+                        frameLock.lock()
+                        lastBackFrame = sampleBuffer
+                        backFrameCount += 1
+                        // Reduce logging frequency to save CPU
+                        if backFrameCount % 120 == 0 {
+                            print("📹 CameraManager: Received \(backFrameCount) back camera frames")
+                        }
+                        frameLock.unlock()
 
-                    // Publish a lightweight preview image at a reduced rate to save CPU
-                    if backFrameCount % previewFrameInterval == 0 {
-                        autoreleasepool {
+                        // Publish a lightweight preview image at a reduced rate to save CPU
+                        if backFrameCount % previewFrameInterval == 0 {
                             if let previewImage = self.imageFromSampleBuffer(sampleBuffer, isFrontCamera: false) {
                                 DispatchQueue.main.async { [weak self] in
                                     self?.capturedBackImage = previewImage
@@ -1513,47 +1665,63 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                     }
                     
                     // Write to video file if recording
-                    if isRecording, let videoInput = backVideoWriterInput, videoInput.isReadyForMoreMediaData {
-                        // Start writer session only when we have stable frames from both cameras
-                        if !backWriterSessionStarted, let writer = backVideoWriter, writer.status == .writing,
-                           frontFrameCount >= 3 {  // Wait for front camera to have at least 3 frames (skip black frames)
-                            let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                            writer.startSession(atSourceTime: timestamp)
-                            recordingStartTime = timestamp
-                            backWriterSessionStarted = true
-                            print("✅ CameraManager: Back video writer session started at \(timestamp.seconds) (both cameras stable)")
-                        }
-                        // CRITICAL: Only append after session has started
-                        if backWriterSessionStarted {
-                            let success = videoInput.append(sampleBuffer)
-                            if !success && backFrameCount % 30 == 0 {
-                                print("⚠️ CameraManager: Failed to append back video frame")
+                    // CRITICAL: Check isRecording AND writer status to prevent race condition crashes
+                    if isRecording {
+                        if let videoInput = backVideoWriterInput, 
+                           let writer = backVideoWriter,
+                           writer.status == .writing,
+                           videoInput.isReadyForMoreMediaData {
+                            // Start writer session only when we have stable frames from both cameras
+                            // Use original buffer timestamp for session start
+                            if !backWriterSessionStarted, frontFrameCount >= 3 {  // Wait for front camera to have at least 3 frames (skip black frames)
+                                let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                                if writer.status == .writing {  // Double check writer is still ready
+                                    writer.startSession(atSourceTime: timestamp)
+                                    recordingStartTime = timestamp
+                                    backWriterSessionStarted = true
+                                    print("✅ CameraManager: Back video writer session started at \(timestamp.seconds) (both cameras stable)")
+                                } else {
+                                    print("⚠️ CameraManager: Cannot start session, writer status: \(writer.status.rawValue)")
+                                }
                             }
-                            if backFrameCount % 60 == 0 {
-                                print("📹 CameraManager: Back video frames appended (count: \(backFrameCount))")
+                            // CRITICAL: Only append after session has started and verify recording still active
+                            if backWriterSessionStarted && isRecording && writer.status == .writing {
+                                // Rotate pixel buffer if in portrait mode
+                                let rotatedBuffer = self.rotateSampleBufferIfNeeded(sampleBuffer, orientation: self.recordingOrientation, isFrontCamera: false)
+                                // Double check writer is still ready after rotation
+                                if videoInput.isReadyForMoreMediaData && writer.status == .writing {
+                                    let success = videoInput.append(rotatedBuffer)
+                                    if !success && backFrameCount % 90 == 0 {
+                                        print("⚠️ CameraManager: Failed to append back video frame, writer status: \(writer.status.rawValue)")
+                                    }
+                                    if backFrameCount % 60 == 0 {
+                                        print("📹 CameraManager: Back video frames appended (count: \(backFrameCount))")
+                                    }
+                                }
                             }
-                        }
-                    } else if isRecording && backFrameCount % 30 == 0 {
-                        if frontFrameCount < 3 {
-                            print("⏳ CameraManager: Waiting for front camera frames (\(frontFrameCount)/3)...")
+                        } else if backFrameCount % 30 == 0 {
+                            if frontFrameCount < 3 {
+                                print("⏳ CameraManager: Waiting for front camera frames (\(frontFrameCount)/3)...")
+                            }
                         }
                     }
                 } else if position == .front {
-                    // Front camera frame
-                    frameLock.lock()
-                    lastFrontFrame = sampleBuffer
-                    frontFrameCount += 1
-                    if frontFrameCount == 1 {
-                        print("🎉 CameraManager: FIRST front camera frame received!")
-                    }
-                    if frontFrameCount % 30 == 0 {
-                        print("📹 CameraManager: Received \(frontFrameCount) front camera frames")
-                    }
-                    frameLock.unlock()
+                    // Front camera frame - wrap in autoreleasepool for better memory management
+                    autoreleasepool {
+                        frameLock.lock()
+                        lastFrontFrame = sampleBuffer
+                        frontFrameCount += 1
+                        if frontFrameCount == 1 {
+                            print("🎉 CameraManager: FIRST front camera frame received!")
+                        }
+                        // Reduce logging frequency to save CPU
+                        if frontFrameCount % 120 == 0 {
+                            print("📹 CameraManager: Received \(frontFrameCount) front camera frames")
+                        }
+                        frameLock.unlock()
 
-                    // Publish a lightweight preview image at a reduced rate to save CPU
-                    if frontFrameCount % previewFrameInterval == 0 {
-                        autoreleasepool {
+                        // Publish a lightweight preview image at a reduced rate to save CPU
+                        if frontFrameCount % previewFrameInterval == 0 {
                             if let previewImage = self.imageFromSampleBuffer(sampleBuffer, isFrontCamera: true) {
                                 DispatchQueue.main.async { [weak self] in
                                     self?.capturedFrontImage = previewImage
@@ -1563,19 +1731,33 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                     }
                     
                     // Write to video file if recording
-                    if isRecording, let videoInput = frontVideoWriterInput, videoInput.isReadyForMoreMediaData {
-                        // Use same start time as back camera
-                        if !frontWriterSessionStarted, let writer = frontVideoWriter, writer.status == .writing, 
-                           let startTime = recordingStartTime {
-                            writer.startSession(atSourceTime: startTime)
-                            frontWriterSessionStarted = true
-                            print("✅ CameraManager: Front video writer session started at \(startTime.seconds)")
-                        }
-                        // CRITICAL: Only append after session has started
-                        if frontWriterSessionStarted {
-                            let success = videoInput.append(sampleBuffer)
-                            if !success && frontFrameCount % 30 == 0 {
-                                print("⚠️ CameraManager: Failed to append front video frame")
+                    // CRITICAL: Check isRecording AND writer status to prevent race condition crashes
+                    if isRecording {
+                        if let videoInput = frontVideoWriterInput,
+                           let writer = frontVideoWriter,
+                           writer.status == .writing,
+                           videoInput.isReadyForMoreMediaData {
+                            // Use same start time as back camera
+                            if !frontWriterSessionStarted, let startTime = recordingStartTime {
+                                if writer.status == .writing {  // Double check writer is still ready
+                                    writer.startSession(atSourceTime: startTime)
+                                    frontWriterSessionStarted = true
+                                    print("✅ CameraManager: Front video writer session started at \(startTime.seconds)")
+                                } else {
+                                    print("⚠️ CameraManager: Cannot start front session, writer status: \(writer.status.rawValue)")
+                                }
+                            }
+                            // CRITICAL: Only append after session has started and verify recording still active
+                            if frontWriterSessionStarted && isRecording && writer.status == .writing {
+                                // Rotate pixel buffer if in portrait mode
+                                let rotatedBuffer = self.rotateSampleBufferIfNeeded(sampleBuffer, orientation: self.recordingOrientation, isFrontCamera: true)
+                                // Double check writer is still ready after rotation
+                                if videoInput.isReadyForMoreMediaData && writer.status == .writing {
+                                    let success = videoInput.append(rotatedBuffer)
+                                    if !success && frontFrameCount % 30 == 0 {
+                                        print("⚠️ CameraManager: Failed to append front video frame, writer status: \(writer.status.rawValue)")
+                                    }
+                                }
                             }
                         }
                     }
@@ -1585,14 +1767,21 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
             }
         } else if output is AVCaptureAudioDataOutput {
             // Audio data
-            if isRecording, let audioInput = audioWriterInput, audioInput.isReadyForMoreMediaData {
-                if !audioWriterSessionStarted, let writer = audioWriter, writer.status == .writing, let startTime = recordingStartTime {
-                    writer.startSession(atSourceTime: startTime)
-                    audioWriterSessionStarted = true
-                    print("✅ CameraManager: Audio writer session started at \(startTime.seconds)")
-                }
-                if audioWriterSessionStarted {
-                    audioInput.append(sampleBuffer)
+            // CRITICAL: Check isRecording AND writer status to prevent race condition crashes
+            if isRecording {
+                if let audioInput = audioWriterInput,
+                   let writer = audioWriter,
+                   writer.status == .writing,
+                   audioInput.isReadyForMoreMediaData {
+                    if !audioWriterSessionStarted, let startTime = recordingStartTime {
+                        writer.startSession(atSourceTime: startTime)
+                        audioWriterSessionStarted = true
+                        print("✅ CameraManager: Audio writer session started at \(startTime.seconds)")
+                    }
+                    // CRITICAL: Verify recording still active before append
+                    if audioWriterSessionStarted && isRecording {
+                        audioInput.append(sampleBuffer)
+                    }
                 }
             }
         }

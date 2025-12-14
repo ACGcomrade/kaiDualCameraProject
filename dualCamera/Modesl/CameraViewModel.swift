@@ -425,6 +425,18 @@ class CameraViewModel: ObservableObject {
         print("🎥 ViewModel: Has back video: \(backURL != nil)")
         print("🎥 ViewModel: Has front video: \(frontURL != nil)")
         
+        // Generate thumbnail for gallery button from back video (or front if back is nil)
+        if let videoURL = backURL ?? frontURL {
+            generateVideoThumbnail(from: videoURL) { [weak self] thumbnail in
+                if let thumbnail = thumbnail {
+                    DispatchQueue.main.async {
+                        self?.lastCapturedImage = thumbnail
+                        print("✅ ViewModel: Video thumbnail generated and set")
+                    }
+                }
+            }
+        }
+        
         guard backURL != nil || frontURL != nil else {
             DispatchQueue.main.async {
                 self.saveStatus = "No videos to save"
@@ -544,6 +556,27 @@ class CameraViewModel: ObservableObject {
                         completion(false)
                     }
                 }
+            }
+        }
+    }
+    
+    // Generate video thumbnail for preview
+    private func generateVideoThumbnail(from videoURL: URL, completion: @escaping (UIImage?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let asset = AVURLAsset(url: videoURL)
+            let imageGenerator = AVAssetImageGenerator(asset: asset)
+            imageGenerator.appliesPreferredTrackTransform = true
+            imageGenerator.maximumSize = CGSize(width: 300, height: 300)
+            
+            let time = CMTime(seconds: 0.5, preferredTimescale: 600)
+            
+            do {
+                let cgImage = try imageGenerator.copyCGImage(at: time, actualTime: nil)
+                let thumbnail = UIImage(cgImage: cgImage)
+                completion(thumbnail)
+            } catch {
+                print("❌ ViewModel: Failed to generate video thumbnail: \(error.localizedDescription)")
+                completion(nil)
             }
         }
     }

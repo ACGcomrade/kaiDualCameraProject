@@ -4,7 +4,6 @@ struct ContentView: View {
     @StateObject private var viewModel = CameraViewModel()
     @State private var hasAppearedOnce = false
     @State private var showGallery = false
-    @State private var recordingDotOpacity: Double = 1.0  // For slow blinking
     @State private var previewRefreshID = UUID()  // Force preview rebuild
     @State private var focusPoint: CGPoint? = nil  // Focus indicator position
     @State private var showFocusIndicator = false  // Control focus indicator visibility
@@ -48,29 +47,6 @@ struct ContentView: View {
                             handleTapToFocus(at: value.location)
                         }
                 )
-            
-            // Recording indicator (red dot) - always show during recording
-            if viewModel.isRecording {
-                VStack {
-                    HStack {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 16, height: 16)
-                            .opacity(recordingDotOpacity)
-                            .onAppear {
-                                withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                                    recordingDotOpacity = 0.3
-                                }
-                            }
-                            .padding(.leading, 20)
-                            .padding(.top, 60)
-                        
-                        Spacer()
-                    }
-                    Spacer()
-                }
-                .allowsHitTesting(false) // Don't block tap gestures
-            }
             
             // Central zoom level indicator (fades in/out)
             CentralZoomIndicator(
@@ -194,26 +170,10 @@ struct ContentView: View {
                     let isLandscape = geometry.size.width > geometry.size.height
                     
                     ZStack {
-                        // Recording indicator - updates in real-time
+                        // Recording duration display - updates in real-time
                         if viewModel.isRecording {
                             VStack {
-                                HStack(spacing: 12) {
-                                    // Animated pulsing red circle
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 20, height: 20)
-                                        .overlay(
-                                            Circle()
-                                                .stroke(Color.red.opacity(0.5), lineWidth: 2)
-                                                .scaleEffect(viewModel.isRecording ? 1.5 : 1.0)
-                                                .opacity(viewModel.isRecording ? 0 : 1)
-                                                .animation(
-                                                    .easeInOut(duration: 1.0)
-                                                    .repeatForever(autoreverses: false),
-                                                    value: viewModel.isRecording
-                                                )
-                                        )
-                                    
+                                HStack {
                                     // Real-time recording duration with monospaced font
                                     Text(timeString(from: viewModel.recordingDuration))
                                         .font(.system(size: 18, weight: .semibold, design: .monospaced))
@@ -225,7 +185,7 @@ struct ContentView: View {
                                 .background(
                                     Capsule()
                                         .fill(Color.black.opacity(0.75))
-                                        .shadow(color: Color.red.opacity(0.3), radius: 8, x: 0, y: 2)
+                                        .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 2)
                                 )
                                 .padding(.top, 60)
                                 
