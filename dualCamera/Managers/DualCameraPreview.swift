@@ -75,13 +75,14 @@ struct DualCameraPreview: UIViewRepresentable {
             addSubview(pipContainer)
             frontContainerView = pipContainer
             
-            // Add swap icon
+            // Add swap icon (hidden but tap gesture still works)
             let swapIcon = UIImageView(image: UIImage(systemName: "arrow.triangle.2.circlepath"))
             swapIcon.tintColor = .white.withAlphaComponent(0.8)
             swapIcon.contentMode = .scaleAspectFit
             swapIcon.backgroundColor = UIColor.black.withAlphaComponent(0.5)
             swapIcon.layer.cornerRadius = 12.5
             swapIcon.clipsToBounds = true
+            swapIcon.isHidden = true  // Hide the icon but keep tap gesture working
             pipContainer.addSubview(swapIcon)
             swapIcon.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
