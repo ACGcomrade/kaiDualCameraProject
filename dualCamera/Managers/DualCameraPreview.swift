@@ -102,18 +102,40 @@ struct DualCameraPreview: UIViewRepresentable {
         var currentCameraMode: CameraMode = .dual  // Will be set externally
         var currentFilter: FilterStyle = .none  // Current filter style
         
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            
+            // Connect to PreviewCaptureManager when view is added to window
+            if window != nil {
+                PreviewCaptureManager.shared.setPreviewView(self)
+                print("✅ DualCameraPreview.PreviewView: Connected to PreviewCaptureManager")
+                
+                // Listen for preview toggle notification
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(pipTapped),
+                    name: NSNotification.Name("TogglePreviewCamera"),
+                    object: nil
+                )
+            } else {
+                // Remove observer when view is removed
+                NotificationCenter.default.removeObserver(self, name: NSNotification.Name("TogglePreviewCamera"), object: nil)
+            }
+        }
+        
         override func layoutSubviews() {
             super.layoutSubviews()
             
             // Back camera always fills the screen
             backImageView?.frame = bounds
             
-            // Hide PIP in single camera mode
-            if currentCameraMode != .dual {
+            // Show PIP in dual mode and picInPic mode
+            if currentCameraMode == .dual || currentCameraMode == .picInPic {
+                frontContainerView?.isHidden = false
+            } else {
                 frontContainerView?.isHidden = true
                 return
             }
-            frontContainerView?.isHidden = false
             
             // Get device orientation to adjust PIP position
             let isLandscape = bounds.width > bounds.height
@@ -171,6 +193,20 @@ struct DualCameraPreview: UIViewRepresentable {
                     return
                 }
                 
+                // In PIP mode, display based on switcher state (allow switching)
+                if self.currentCameraMode == .picInPic {
+                    if self.previewSwitcher.isBackCameraMain {
+                        // Back camera is main (large preview)
+                        self.backImageView?.image = image
+                        self.updateImageViewTransform(self.backImageView, isFrontCamera: false)
+                    } else {
+                        // Back camera is PIP (small preview)
+                        self.frontImageView?.image = image
+                        self.updateImageViewTransform(self.frontImageView, isFrontCamera: false)
+                    }
+                    return
+                }
+                
                 // Display based on switcher state in dual mode
                 if self.previewSwitcher.isBackCameraMain {
                     // Back camera is main (large preview)
@@ -202,6 +238,20 @@ struct DualCameraPreview: UIViewRepresentable {
                     return
                 }
                 
+                // In PIP mode, display based on switcher state (allow switching)
+                if self.currentCameraMode == .picInPic {
+                    if self.previewSwitcher.isBackCameraMain {
+                        // Front camera is PIP (small preview)
+                        self.frontImageView?.image = image
+                        self.updateImageViewTransform(self.frontImageView, isFrontCamera: true)
+                    } else {
+                        // Front camera is main (large preview)
+                        self.backImageView?.image = image
+                        self.updateImageViewTransform(self.backImageView, isFrontCamera: true)
+                    }
+                    return
+                }
+                
                 // Display based on switcher state in dual mode
                 if self.previewSwitcher.isBackCameraMain {
                     // Front camera is PIP (small preview)
@@ -215,84 +265,21 @@ struct DualCameraPreview: UIViewRepresentable {
             }
         }
         
-        // Use GPU-accelerated layer transform instead of CPU image rotation
+        // Use GPU-accelerated layer transform with shared utility method
         private func updateImageViewTransform(_ imageView: UIImageView?, isFrontCamera: Bool) {
             guard let imageView = imageView else { return }
             
             let orientation = UIDevice.current.orientation
-            var rotationAngle: CGFloat = 0
-            
-            if isFrontCamera {
-                switch orientation {
-                case .portrait:
-                    rotationAngle = .pi / 2
-                case .portraitUpsideDown:
-                    rotationAngle = -.pi / 2
-                case .landscapeLeft:
-                    rotationAngle = .pi
-                case .landscapeRight:
-                    rotationAngle = 0
-                default:
-                    rotationAngle = .pi / 2
-                }
-            } else {
-                switch orientation {
-                case .portrait:
-                    rotationAngle = .pi / 2
-                case .portraitUpsideDown:
-                    rotationAngle = -.pi / 2
-                case .landscapeLeft:
-                    rotationAngle = 0
-                case .landscapeRight:
-                    rotationAngle = .pi
-                default:
-                    rotationAngle = .pi / 2
-                }
-            }
+            let rotationAngle = ImageUtils.rotationAngle(for: orientation, isFrontCamera: isFrontCamera)
             
             // GPU-accelerated transform (no CPU work!)
             imageView.transform = CGAffineTransform(rotationAngle: rotationAngle)
         }
         
-        // 修复图像方向,使其与设备方向匹配
+        // 修复图像方向,使其与设备方向匹配 (使用共享工具类)
         private func fixImageOrientation(_ image: UIImage, isFrontCamera: Bool) -> UIImage {
-            // 获取设备方向
             let orientation = UIDevice.current.orientation
-            
-            // 根据设备方向旋转图像
-            var rotationAngle: CGFloat = 0
-            
-            if isFrontCamera {
-                // 前置摄像头在横屏时保持原来的角度(不需要反转)
-                switch orientation {
-                case .portrait:
-                    rotationAngle = .pi / 2  // 90度 - 竖屏
-                case .portraitUpsideDown:
-                    rotationAngle = -.pi / 2  // -90度 - 倒置
-                case .landscapeLeft:
-                    rotationAngle = .pi  // 180度
-                case .landscapeRight:
-                    rotationAngle = 0  // 0度
-                default:
-                    rotationAngle = .pi / 2  // 默认竖屏
-                }
-            } else {
-                // 后置摄像头使用现有角度
-                switch orientation {
-                case .portrait:
-                    rotationAngle = .pi / 2  // 90度 - 竖屏
-                case .portraitUpsideDown:
-                    rotationAngle = -.pi / 2  // -90度 - 倒置
-                case .landscapeLeft:
-                    rotationAngle = 0  // 0度
-                case .landscapeRight:
-                    rotationAngle = .pi  // 180度
-                default:
-                    rotationAngle = .pi / 2  // 默认竖屏
-                }
-            }
-            
-            // 旋转图像
+            let rotationAngle = ImageUtils.rotationAngle(for: orientation, isFrontCamera: isFrontCamera)
             return rotateImage(image, by: rotationAngle)
         }
         
@@ -349,6 +336,10 @@ struct DualCameraPreview: UIViewRepresentable {
     func makeUIView(context: Context) -> PreviewView {
         print("🖼️ DualCameraPreview: makeUIView called")
         let view = PreviewView(frame: .zero)
+        
+        // Connect PreviewSwitcher to CameraManager for PIP video recording
+        viewModel.cameraManager.previewSwitcher = view.previewSwitcher
+        print("✅ DualCameraPreview: Connected PreviewSwitcher to CameraManager")
         
         // Set current camera mode and filter
         view.currentCameraMode = viewModel.cameraManager.cameraMode

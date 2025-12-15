@@ -1,0 +1,62 @@
+# 备份：工作正常的画中画视频帧合成代码
+# 日期：2025年12月14日
+# 说明：这是基于实时合成两个摄像头帧的实现（已验证工作）
+
+## 关键方法位置：CameraManager.swift
+
+### 1. startPIPVideoRecording() - 开始录制
+- 创建 pipVideoWriter 和 audioWriter
+- 使用相机分辨率（不是屏幕分辨率）
+- 设置 isPIPRecordingMode = true
+
+### 2. captureOutput() 中的 PIP 分支
+```swift
+if isPIPRecordingMode {
+    if let videoInput = pipVideoWriterInput,
+       let writer = pipVideoWriter,
+       writer.status == .writing,
+       videoInput.isReadyForMoreMediaData,
+       frontFrameCount >= 3 {
+        
+        // 获取前后摄像头帧
+        // 旋转帧
+        let rotatedBackBuffer = self.rotateSampleBufferIfNeeded(sampleBuffer, ...)
+        let rotatedFrontBuffer = self.rotateSampleBufferIfNeeded(frontFrame, ...)
+        
+        // 合成PIP帧
+        if let composedBuffer = PIPComposer.composePIPVideoFrame(
+            backBuffer: rotatedBackPixel,
+            frontBuffer: rotatedFrontPixel,
+            isLandscape: isLandscape,
+            ciContext: self.ciContext
+        ) {
+            // 创建 CMSampleBuffer 并写入
+            videoInput.append(pipSample)
+        }
+    }
+}
+```
+
+### 3. stopPIPVideoRecording() - 停止录制
+- 标记输入完成
+- 完成写入
+- 合并音频
+
+### 4. PIPComposer.composePIPVideoFrame()
+- 使用 Core Image 实时合成帧
+- PIP位置计算正确（右上角）
+- 返回合成后的 CVPixelBuffer
+
+## 优点
+- 实时合成，延迟低
+- 使用相机原始分辨率
+- PIP位置准确
+- 已验证稳定工作
+
+## 缺点
+- 无法录制预览切换动画
+- 依赖 PIPComposer 合成逻辑
+- CPU负载相对较高（实时合成）
+
+---
+此备份保存在切换到照片序列录制方案之前。

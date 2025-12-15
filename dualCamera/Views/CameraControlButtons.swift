@@ -70,17 +70,37 @@ struct CameraControlButtons: View {
                     }
                     Spacer()
                     
-                    // Mode switch button
+                    // Mode switch button (cycles through 3 modes)
                     Button(action: {
                         onInteraction()
                         onModeSwitch()
                     }) {
-                        Image(systemName: captureMode == .photo ? "video.fill" : "camera.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.white)
-                            .frame(width: 60, height: 60)
-                            .background(Color.black.opacity(0.6))
-                            .clipShape(Circle())
+                        ZStack {
+                            // Show next mode icon
+                            let nextModeIcon: String = {
+                                switch captureMode {
+                                case .photo: return "video.fill"
+                                case .video: return "camera.fill"
+                                }
+                            }()
+                            
+                            Image(systemName: nextModeIcon)
+                                .font(.system(size: 24))
+                                .foregroundColor(.white)
+                                .frame(width: 60, height: 60)
+                                .background(Color.black.opacity(0.6))
+                                .clipShape(Circle())
+                            
+                            // Current mode indicator
+                            Text(captureMode.displayName)
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 2)
+                                .background(Color.blue)
+                                .cornerRadius(4)
+                                .offset(x: 0, y: 24)
+                        }
                     }
                     .opacity(isUIVisible ? 1 : 0)
                 }
@@ -193,6 +213,7 @@ struct CameraControlButtons: View {
                     .fill(Color.white)
                     .frame(width: 70, height: 70)
             } else {
+                // Video mode
                 if isRecording {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.red)

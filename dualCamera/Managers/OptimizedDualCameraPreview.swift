@@ -121,4 +121,14 @@ class OptimizedDualCameraPreview: UIView {
             )
         }
     }
+    
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        
+        // Connect to PreviewCaptureManager when view is added to window
+        if window != nil {
+            PreviewCaptureManager.shared.setPreviewView(self)
+            print("✅ OptimizedDualCameraPreview: Connected to PreviewCaptureManager")
+        }
+    }
 }

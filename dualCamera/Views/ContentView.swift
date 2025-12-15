@@ -29,6 +29,10 @@ struct ContentView: View {
                 print("🟢 ContentView: onAppear called (first time)")
                 viewModel.startCameraIfNeeded()
             }
+            .onDisappear {
+                print("🔴 ContentView: onDisappear called - stopping session")
+                viewModel.cameraManager.stopSession()
+            }
     }
     
     private var cameraView: some View {
@@ -38,15 +42,38 @@ struct ContentView: View {
                 .ignoresSafeArea()
             
             // Full screen dual camera preview - always visible
-            DualCameraPreview(viewModel: viewModel)
-                .ignoresSafeArea()
-                .id(previewRefreshID)  // Force rebuild when ID changes
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onEnded { value in
-                            handleTapToFocus(at: value.location)
-                        }
-                )
+            GeometryReader { geometry in
+                DualCameraPreview(viewModel: viewModel)
+                    .ignoresSafeArea()
+                    .id(previewRefreshID)  // Force rebuild when ID changes
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onEnded { value in
+                                // Check if tap is in PIP area (right top corner)
+                                let isLandscape = geometry.size.width > geometry.size.height
+                                let pipWidth: CGFloat = isLandscape ? 160 : 120
+                                let pipHeight: CGFloat = isLandscape ? 90 : 160
+                                let pipPadding: CGFloat = 20
+                                let safeTop: CGFloat = geometry.safeAreaInsets.top
+                                
+                                let pipFrame = CGRect(
+                                    x: geometry.size.width - pipWidth - pipPadding,
+                                    y: safeTop + pipPadding,
+                                    width: pipWidth,
+                                    height: pipHeight
+                                )
+                                
+                                // If tap is in PIP area, toggle preview (don't focus)
+                                if pipFrame.contains(value.location) {
+                                    viewModel.cameraManager.togglePreviewCamera()
+                                } else {
+                                    // Otherwise, handle tap to focus
+                                    handleTapToFocus(at: value.location)
+                                }
+                            }
+                    )
+            }
+            .ignoresSafeArea()
             
             // Central zoom level indicator (fades in/out)
             CentralZoomIndicator(
@@ -581,17 +608,6 @@ struct ContentView: View {
                 )
             }
             
-            // Save status alert
-            if viewModel.showSaveAlert, let status = viewModel.saveStatus {
-                SaveStatusAlert(
-                    status: status,
-                    onDismiss: {
-                        viewModel.showSaveAlert = false
-                        viewModel.saveStatus = nil
-                    }
-                )
-            }
-            
             // Resolution picker
             if showResolutionPicker {
                 PickerOverlay(
@@ -655,28 +671,15 @@ struct ContentView: View {
         return String(format: "%02d:%02d.%01d", minutes, seconds, milliseconds)
     }
     
-    // Switch camera mode (front only / back only / dual)
+    // Switch camera mode (front only / back only / dual / PIP)
     private func switchCameraMode() {
-        print("🔄 ContentView: Switching camera mode...")
-        
-        let allModes: [CameraMode] = [.dual, .backOnly, .frontOnly]
-        let currentIndex = allModes.firstIndex(of: viewModel.cameraManager.cameraMode) ?? 0
-        let nextIndex = (currentIndex + 1) % allModes.count
-        let newMode = allModes[nextIndex]
-        
-        print("🔄 ContentView: Mode changing from \(viewModel.cameraManager.cameraMode.displayName) to \(newMode.displayName)")
-        
-        // Stop current session
-        viewModel.cameraManager.stopSession()
-        
-        // Update mode
-        viewModel.cameraManager.cameraMode = newMode
-        
-        // Restart session with new mode and force preview rebuild
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            viewModel.cameraManager.setupSession(forceReconfigure: true)
-            previewRefreshID = UUID()
-            print("🔄 ContentView: ✅ Camera mode switched to \(newMode.displayName)")
+        viewModel.ensureCameraActiveAndExecute {
+            viewModel.switchCameraMode()
+            
+            // Force preview rebuild after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                previewRefreshID = UUID()
+            }
         }
     }
     

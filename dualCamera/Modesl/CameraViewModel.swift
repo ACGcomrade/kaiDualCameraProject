@@ -53,6 +53,7 @@ class CameraViewModel: ObservableObject {
     let cameraManager = CameraManager.shared
     let uiVisibilityManager = UIVisibilityManager()
     let performanceMonitor = PerformanceMonitor()
+    // let notificationManager = NotificationManager()  // REMOVED - Notification system disabled
     private var cancellables = Set<AnyCancellable>()
     private var recordingTimer: Timer?
     
@@ -244,7 +245,7 @@ class CameraViewModel: ObservableObject {
     }
     
     func capturePhoto() {
-        print("📸 ViewModel: Capturing dual photos...")
+        print("📸 ViewModel: Capturing photo (capture mode: \(captureMode.displayName), camera mode: \(cameraManager.cameraMode.displayName))...")
         
         // Trigger screen flash and hardware flash if in auto mode
         let shouldFlash = flashMode == .auto
@@ -252,24 +253,47 @@ class CameraViewModel: ObservableObject {
             triggerScreenFlash()
         }
         
-        cameraManager.captureDualPhotos(withFlash: shouldFlash) { [weak self] backImage, frontImage in
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                print("📸 ViewModel: Received back image: \(backImage != nil)")
-                print("📸 ViewModel: Received front image: \(frontImage != nil)")
-                
-                self.capturedBackImage = backImage
-                self.capturedFrontImage = frontImage
-                
-                // Update last captured image for gallery button (prefer back camera)
-                self.lastCapturedImage = backImage ?? frontImage
-                
-                // Automatically save both images to photo library
-                if backImage != nil || frontImage != nil {
-                    print("📸 ViewModel: Starting save process...")
-                    self.savePhotosToLibrary()
-                } else {
-                    print("❌ ViewModel: No images captured!")
+        // Check if PIP camera mode
+        if cameraManager.cameraMode == .picInPic {
+            // Capture PIP composed photo
+            cameraManager.capturePIPPhoto(withFlash: shouldFlash) { [weak self] pipImage in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    print("📸 ViewModel: Received PIP image: \(pipImage != nil)")
+                    
+                    self.lastCapturedImage = pipImage
+                    
+                    // Save PIP image using unified save method
+                    if let pipImage = pipImage {
+                        print("📸 ViewModel: Saving PIP image using unified method...")
+                        self.savePhotosToLibrary(backImage: pipImage, frontImage: nil)
+                    } else {
+                        print("❌ ViewModel: No PIP image captured!")
+                    }
+                }
+            }
+        } else {
+            // Capture based on camera mode (CameraManager now returns correct images based on mode)
+            cameraManager.captureDualPhotos(withFlash: shouldFlash) { [weak self] backImage, frontImage in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    print("📸 ViewModel: Received back image: \(backImage != nil)")
+                    print("📸 ViewModel: Received front image: \(frontImage != nil)")
+                    
+                    // Store captured images (CameraManager already filtered based on mode)
+                    self.capturedBackImage = backImage
+                    self.capturedFrontImage = frontImage
+                    
+                    // Update last captured image for gallery button
+                    self.lastCapturedImage = backImage ?? frontImage
+                    
+                    // Automatically save images to photo library
+                    if backImage != nil || frontImage != nil {
+                        print("📸 ViewModel: Starting save process...")
+                        self.savePhotosToLibrary(backImage: backImage, frontImage: frontImage)
+                    } else {
+                        print("❌ ViewModel: No images captured!")
+                    }
                 }
             }
         }
@@ -314,24 +338,41 @@ class CameraViewModel: ObservableObject {
     }
     
     private func startVideoRecording() {
-        print("🎥 ViewModel: startVideoRecording called")
+        print("🎥 ViewModel: startVideoRecording called (capture: \(captureMode.displayName), camera: \(cameraManager.cameraMode.displayName))")
         isRecording = true
         
-        cameraManager.startVideoRecording { [weak self] backURL, frontURL, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                print("❌ ViewModel: Video recording start error: \(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    self.saveStatus = "Video recording failed to start"
-                    self.showSaveAlert = true
-                    self.isRecording = false
+        // Check if PIP camera mode
+        if cameraManager.cameraMode == .picInPic {
+            // Start PIP recording
+            cameraManager.startPIPVideoRecording { [weak self] pipURL, error in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    print("❌ ViewModel: PIP recording start error: \(error.localizedDescription)")
+                    DispatchQueue.main.async {
+                        self.isRecording = false
+                    }
+                    return
                 }
-                return
+                
+                print("✅ ViewModel: PIP recording started successfully")
             }
-            
-            print("✅ ViewModel: Video recording started successfully")
-            // Do NOT save videos here - they are not finished yet!
+        } else {
+            // Normal dual recording
+            cameraManager.startVideoRecording { [weak self] backURL, frontURL, error in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    print("❌ ViewModel: Video recording start error: \(error.localizedDescription)")
+                    DispatchQueue.main.async {
+                        self.isRecording = false
+                    }
+                    return
+                }
+                
+                print("✅ ViewModel: Video recording started successfully")
+                // Do NOT save videos here - they are not finished yet!
+            }
         }
     }
     
@@ -439,14 +480,14 @@ class CameraViewModel: ObservableObject {
         
         guard backURL != nil || frontURL != nil else {
             DispatchQueue.main.async {
-                self.saveStatus = "No videos to save"
-                self.showSaveAlert = true
                 self.isRecording = false
             }
             return
         }
         
-        var savedCount = 0
+        let videoCount = (backURL != nil ? 1 : 0) + (frontURL != nil ? 1 : 0)
+        print("✅ ViewModel: Saving \(videoCount) video(s)")
+        
         var failedCount = 0
         let group = DispatchGroup()
         
@@ -455,12 +496,11 @@ class CameraViewModel: ObservableObject {
             group.enter()
             print("🎥 ViewModel: Saving back camera video...")
             self.saveVideoToLibrary(backURL) { success in
-                if success {
-                    print("✅ ViewModel: Back camera video saved")
-                    savedCount += 1
-                } else {
+                if !success {
                     print("❌ ViewModel: Back camera video failed")
                     failedCount += 1
+                } else {
+                    print("✅ ViewModel: Back camera video saved")
                 }
                 group.leave()
             }
@@ -471,32 +511,22 @@ class CameraViewModel: ObservableObject {
             group.enter()
             print("🎥 ViewModel: Saving front camera video...")
             self.saveVideoToLibrary(frontURL) { success in
-                if success {
-                    print("✅ ViewModel: Front camera video saved")
-                    savedCount += 1
-                } else {
+                if !success {
                     print("❌ ViewModel: Front camera video failed")
                     failedCount += 1
+                } else {
+                    print("✅ ViewModel: Front camera video saved")
                 }
                 group.leave()
             }
         }
         
-        // Show result after all saves complete
+        // Only show error if any save failed
         group.notify(queue: .main) { [weak self] in
             guard let self = self else { return }
             
-            print("🎥 ViewModel: All video saves complete. Saved: \(savedCount), Failed: \(failedCount)")
+            print("🎥 ViewModel: All video saves complete. Failed: \(failedCount)")
             
-            if failedCount == 0 {
-                self.saveStatus = "\(savedCount) video(s) saved successfully!"
-            } else if savedCount == 0 {
-                self.saveStatus = "Failed to save videos. Please check photo library permissions."
-            } else {
-                self.saveStatus = "Saved \(savedCount) video(s), failed \(failedCount)"
-            }
-            
-            self.showSaveAlert = true
             self.isRecording = false
         }
     }
@@ -582,8 +612,32 @@ class CameraViewModel: ObservableObject {
     }
     
     func switchMode() {
+        // Prevent mode switching while recording
+        guard !isRecording else {
+            print("⚠️ ViewModel: Cannot switch mode while recording")
+            return
+        }
+        
+        // Toggle between photo and video
         captureMode = captureMode == .photo ? .video : .photo
-        print("📸 ViewModel: Switched to \(captureMode.displayName) mode")
+        
+        print("📸 ViewModel: Switched to \(captureMode.fullDisplayName)")
+    }
+    
+    // Show a notification when mode changes
+    func switchCameraMode() {
+        // Cycle through camera modes: frontOnly -> backOnly -> dual -> picInPic -> frontOnly
+        let modes = CameraMode.allCases
+        if let currentIndex = modes.firstIndex(of: cameraManager.cameraMode) {
+            let nextIndex = (currentIndex + 1) % modes.count
+            let nextMode = modes[nextIndex]
+            cameraManager.cameraMode = nextMode
+            
+            print("📷 ViewModel: Switched to camera mode: \(nextMode.displayName)")
+            
+            // Reconfigure session for new camera mode
+            cameraManager.setupSession(forceReconfigure: true)
+        }
     }
     
     func setZoom(_ factor: CGFloat) {
@@ -614,21 +668,19 @@ class CameraViewModel: ObservableObject {
         }
     }
     
-    func savePhotosToLibrary() {
-        let backImage = capturedBackImage
-        let frontImage = capturedFrontImage
-        
+    func savePhotosToLibrary(backImage: UIImage?, frontImage: UIImage?) {
         print("📸 ViewModel: savePhotosToLibrary called")
         print("📸 ViewModel: Has back image: \(backImage != nil)")
         print("📸 ViewModel: Has front image: \(frontImage != nil)")
         
         guard backImage != nil || frontImage != nil else {
-            saveStatus = "No photos to save"
-            showSaveAlert = true
+            print("❌ ViewModel: No photos to save!")
             return
         }
         
-        var savedCount = 0
+        let photoCount = (backImage != nil ? 1 : 0) + (frontImage != nil ? 1 : 0)
+        print("✅ ViewModel: Saving \(photoCount) photo(s)")
+        
         var failedCount = 0
         let group = DispatchGroup()
         
@@ -637,12 +689,11 @@ class CameraViewModel: ObservableObject {
             group.enter()
             print("📸 ViewModel: Saving back camera image...")
             cameraManager.savePhotoToLibrary(backImage, isFrontCamera: false) { success, error in
-                if success {
-                    print("✅ ViewModel: Back camera photo saved")
-                    savedCount += 1
-                } else {
+                if !success {
                     print("❌ ViewModel: Back camera photo failed: \(error?.localizedDescription ?? "unknown")")
                     failedCount += 1
+                } else {
+                    print("✅ ViewModel: Back camera photo saved")
                 }
                 group.leave()
             }
@@ -653,28 +704,20 @@ class CameraViewModel: ObservableObject {
             group.enter()
             print("📸 ViewModel: Saving front camera image...")
             cameraManager.savePhotoToLibrary(frontImage, isFrontCamera: true) { success, error in
-                if success {
-                    print("✅ ViewModel: Front camera photo saved")
-                    savedCount += 1
-                } else {
+                if !success {
                     print("❌ ViewModel: Front camera photo failed: \(error?.localizedDescription ?? "unknown")")
                     failedCount += 1
+                } else {
+                    print("✅ ViewModel: Front camera photo saved")
                 }
                 group.leave()
             }
         }
         
-        // Show result after all saves complete
+        // Only show error if any save failed
         group.notify(queue: .main) { [weak self] in
-            print("📸 ViewModel: All saves complete. Saved: \(savedCount), Failed: \(failedCount)")
-            if failedCount == 0 {
-                self?.saveStatus = "\(savedCount) photo(s) saved successfully!"
-            } else if savedCount == 0 {
-                self?.saveStatus = "Failed to save photos. Please check photo library permissions in Settings."
-            } else {
-                self?.saveStatus = "Saved \(savedCount) photo(s), failed \(failedCount)"
-            }
-            self?.showSaveAlert = true
+            print("📸 ViewModel: All saves complete. Failed: \(failedCount)")
+
         }
     }
     
@@ -690,5 +733,74 @@ class CameraViewModel: ObservableObject {
         } else {
             print("📸 ViewModel: Camera already running or permission not granted, skipping setup")
         }
+    }
+    
+    // MARK: - Testing Methods
+    
+    /// Test notification system with simulated data (DISABLED - notifications removed)
+    func testNotificationSystem() {
+        print("\n🧪 ===== TESTING NOTIFICATION SYSTEM (DISABLED) =====")
+        print("🧪 Notification system has been removed")
+    }
+    
+    /// Test rapid photo capture simulation (DISABLED - notifications removed)
+    func testRapidPhotos() {
+        print("\n🧪 ===== TESTING RAPID PHOTO CAPTURE (DISABLED) =====")
+        print("🧪 Notification system has been removed")
+    }
+    
+    /// Test PIP composition with colored test images
+    /// Creates a test image with RED background and GREEN PIP at top-right
+    func testPIPComposition() {
+        print("\n🧪 ===== TESTING PIP COMPOSITION =====")
+        
+        guard let testImage = PIPComposer.createTestPIPImage(isLandscape: false) else {
+            print("❌ Failed to create test PIP image")
+            return
+        }
+        
+        print("✅ Test PIP image created")
+        print("   Size: \(testImage.size)")
+        print("   Saving to photo library...")
+        
+        // Save test image to verify positioning
+        cameraManager.savePhotoToLibrary(testImage, isFrontCamera: false) { success, error in
+            DispatchQueue.main.async {
+                if success {
+                    print("✅ Test image saved! Check Photos app:")
+                    print("   - Should see RED background")
+                    print("   - GREEN square at TOP-RIGHT corner")
+                    print("   - White border around green square")
+                    self.lastCapturedImage = testImage
+                } else {
+                    print("❌ Failed to save test image: \(error?.localizedDescription ?? "unknown")")
+                }
+            }
+        }
+        
+        print("🧪 ===== TEST COMPLETE =====\n")
+    }
+    
+    /// Test camera mode filtering
+    func testCameraModeFiltering() {
+        print("\n🧪 ===== TESTING CAMERA MODE FILTERING =====")
+        print("🧪 Current camera mode: \(cameraManager.cameraMode.displayName)")
+        
+        // Simulate different modes
+        let modes: [CameraMode] = [.backOnly, .frontOnly, .dual]
+        
+        for (index, mode) in modes.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 2.0) {
+                print("🧪 Testing mode: \(mode.displayName)")
+                self.cameraManager.cameraMode = mode
+                
+                // Simulate capture
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    print("🧪 Simulating capture in \(mode.displayName) mode")
+                }
+            }
+        }
+        
+        print("🧪 ===== CAMERA MODE TEST STARTED =====\n")
     }
 }

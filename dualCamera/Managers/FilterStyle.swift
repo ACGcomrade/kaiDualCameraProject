@@ -29,6 +29,7 @@ enum FilterStyle: Int, CaseIterable {
     
     // Pre-cached filters for instant switching
     private static var cachedFilters: [FilterStyle: CIFilter] = [:]
+    private static let cacheLock = NSLock() // Thread safety for cache access
     
     /// Apply filter to image using Core Image with optimized caching
     func apply(to image: UIImage) -> UIImage {
@@ -77,51 +78,97 @@ enum FilterStyle: Int, CaseIterable {
     /// Apply filter to CIImage directly (more efficient for video preview)
     /// This is the MAIN method used during live preview - heavily optimized
     func apply(to ciImage: CIImage) -> CIImage {
+        // Store original extent to ensure output has same dimensions
+        let originalExtent = ciImage.extent
+        
         switch self {
         case .none:
             return ciImage
             
         case .blackAndWhite:
             // Use CIColorControls to ensure complete black and white conversion
-            if let cachedFilter = Self.cachedFilters[.blackAndWhite] {
+            Self.cacheLock.lock()
+            let cachedFilter = Self.cachedFilters[.blackAndWhite]
+            Self.cacheLock.unlock()
+            
+            if let cachedFilter = cachedFilter {
                 cachedFilter.setValue(ciImage, forKey: kCIInputImageKey)
-                return cachedFilter.outputImage ?? ciImage
+                if let output = cachedFilter.outputImage {
+                    // Crop to original extent to prevent size changes
+                    return output.cropped(to: originalExtent)
+                }
+                return ciImage
             } else {
                 // First desaturate completely
                 let filter = CIFilter(name: "CIColorControls")!
                 filter.setValue(0.0, forKey: kCIInputSaturationKey) // Complete desaturation
                 filter.setValue(1.1, forKey: kCIInputContrastKey) // Slightly increase contrast
+                
+                Self.cacheLock.lock()
                 Self.cachedFilters[.blackAndWhite] = filter
+                Self.cacheLock.unlock()
+                
                 filter.setValue(ciImage, forKey: kCIInputImageKey)
-                return filter.outputImage ?? ciImage
+                if let output = filter.outputImage {
+                    return output.cropped(to: originalExtent)
+                }
+                return ciImage
             }
             
         case .vintage:
             // More intense vintage effect with stronger sepia
-            if let cachedFilter = Self.cachedFilters[.vintage] {
+            Self.cacheLock.lock()
+            let cachedFilter = Self.cachedFilters[.vintage]
+            Self.cacheLock.unlock()
+            
+            if let cachedFilter = cachedFilter {
                 cachedFilter.setValue(ciImage, forKey: kCIInputImageKey)
-                return cachedFilter.outputImage ?? ciImage
+                if let output = cachedFilter.outputImage {
+                    return output.cropped(to: originalExtent)
+                }
+                return ciImage
             } else {
                 let filter = CIFilter(name: "CISepiaTone")!
                 filter.setValue(1.0, forKey: kCIInputIntensityKey) // Maximum intensity
+                
+                Self.cacheLock.lock()
                 Self.cachedFilters[.vintage] = filter
+                Self.cacheLock.unlock()
+                
                 filter.setValue(ciImage, forKey: kCIInputImageKey)
-                return filter.outputImage ?? ciImage
+                if let output = filter.outputImage {
+                    return output.cropped(to: originalExtent)
+                }
+                return ciImage
             }
             
         case .neon:
             // White dreamy glow effect - bloom filter for ethereal look
-            if let cachedFilter = Self.cachedFilters[.neon] {
+            Self.cacheLock.lock()
+            let cachedFilter = Self.cachedFilters[.neon]
+            Self.cacheLock.unlock()
+            
+            if let cachedFilter = cachedFilter {
                 cachedFilter.setValue(ciImage, forKey: kCIInputImageKey)
-                return cachedFilter.outputImage ?? ciImage
+                if let output = cachedFilter.outputImage {
+                    return output.cropped(to: originalExtent)
+                }
+                return ciImage
             } else {
                 // Use Bloom filter for white glowing bubbles effect
                 let filter = CIFilter(name: "CIBloom")!
                 filter.setValue(10.0, forKey: kCIInputRadiusKey) // Glow radius
                 filter.setValue(0.8, forKey: kCIInputIntensityKey) // Strong glow
+                
+                Self.cacheLock.lock()
                 Self.cachedFilters[.neon] = filter
+                Self.cacheLock.unlock()
+                
                 filter.setValue(ciImage, forKey: kCIInputImageKey)
-                return filter.outputImage ?? ciImage
+                if let output = filter.outputImage {
+                    return output.cropped(to: originalExtent)
+                }
+                return ciImage
             }
         }
     }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Enum to represent the current capture mode
+/// Enum to represent the current capture mode (photo or video)
 enum CaptureMode {
     case photo
     case video
@@ -16,6 +16,13 @@ enum CaptureMode {
         switch self {
         case .photo: return "camera.fill"
         case .video: return "video.fill"
+        }
+    }
+    
+    var fullDisplayName: String {
+        switch self {
+        case .photo: return "Photo Mode"
+        case .video: return "Video Mode"
         }
     }
 }

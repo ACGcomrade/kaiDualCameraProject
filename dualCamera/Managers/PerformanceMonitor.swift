@@ -13,12 +13,12 @@ class PerformanceMonitor: ObservableObject {
     private var monitorTimer: Timer?
     
     private let maxHistoryCount = 10
-    private let checkInterval: TimeInterval = 2.0
+    private let checkInterval: TimeInterval = 5.0  // Reduced frequency to save CPU
     
-    // Performance thresholds
-    private let highCPUThreshold: Float = 60.0  // 60% CPU usage
-    private let criticalCPUThreshold: Float = 80.0  // 80% CPU usage
-    private let lowFrameRateThreshold: Double = 25.0  // 25 fps
+    // Performance thresholds - more lenient to avoid over-adjustment
+    private let highCPUThreshold: Float = 70.0  // 70% CPU usage
+    private let criticalCPUThreshold: Float = 85.0  // 85% CPU usage
+    private let lowFrameRateThreshold: Double = 20.0  // 20 fps
     
     enum PreviewQuality: Int {
         case high = 0      // Original resolution
@@ -73,7 +73,10 @@ class PerformanceMonitor: ObservableObject {
         // Calculate average CPU usage
         let avgCPU = cpuUsageHistory.reduce(0, +) / Float(cpuUsageHistory.count)
         
-        print("📊 PerformanceMonitor: CPU \(String(format: "%.1f", avgCPU))% | PIP: \(pipQuality.description) | Main: \(mainQuality.description)")
+        // Only log if CPU is concerning (> 50%)
+        if avgCPU > 50.0 {
+            print("📊 PerformanceMonitor: CPU \(String(format: "%.1f", avgCPU))% | PIP: \(pipQuality.description) | Main: \(mainQuality.description)")
+        }
         
         // Adjust quality based on CPU usage
         adjustQuality(basedOnCPU: avgCPU)

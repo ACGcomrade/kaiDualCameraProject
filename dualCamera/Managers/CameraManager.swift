@@ -14,14 +14,16 @@ class CameraManager: NSObject, ObservableObject {
     private let audioDataQueue = DispatchQueue(label: "audioDataQueue", qos: .utility)
     private let rotationQueue = DispatchQueue(label: "videoRotationQueue", qos: .userInitiated, attributes: .concurrent)  // High priority for rotation
     private let settings = CameraSettings.shared
-    // Reusable CIContext for converting sample buffers to UIImage (expensive to create repeatedly)
-    private let ciContext = CIContext(options: [
-        .useSoftwareRenderer: false,  // Use GPU for better performance
-        .priorityRequestLow: true,     // Lower priority for battery saving
-        .cacheIntermediates: false     // Don't cache to save memory
-    ])
+    // Use shared CIContext from ImageUtils for better performance
+    private var ciContext: CIContext { ImageUtils.sharedCIContext }
     // How many frames between published preview image updates (reduce CPU by updating less frequently)
     private let previewFrameInterval = 12  // Optimized for better battery life (updates ~2.5 times per second at 30fps)
+    
+    // Preview switcher reference (for PIP video recording)
+    weak var previewSwitcher: PreviewSwitcher?
+    
+    // Preview capture manager for screen recording
+    let previewCaptureManager = PreviewCaptureManager.shared
     
     @Published var capturedBackImage: UIImage? = nil
     @Published var capturedFrontImage: UIImage? = nil
@@ -56,20 +58,25 @@ class CameraManager: NSObject, ObservableObject {
     private var backVideoWriter: AVAssetWriter?
     private var frontVideoWriter: AVAssetWriter?
     private var audioWriter: AVAssetWriter?
+    private var pipVideoWriter: AVAssetWriter?  // PIP mode: single writer for composed output
     private var backVideoWriterInput: AVAssetWriterInput?
     private var frontVideoWriterInput: AVAssetWriterInput?
     private var audioWriterInput: AVAssetWriterInput?
+    private var pipVideoWriterInput: AVAssetWriterInput?  // PIP mode input
     private var recordingStartTime: CMTime?
     private var recordingOrientation: UIDeviceOrientation = .portrait  // Store orientation for pixel rotation
     private var recordingTimer: Timer?
     private var backOutputURL: URL?
     private var frontOutputURL: URL?
     private var audioOutputURL: URL?
+    private var pipOutputURL: URL?  // PIP mode output
+    private var isPIPRecordingMode = false  // Flag to indicate PIP recording
     
     // Session start flags
     private var backWriterSessionStarted = false
     private var frontWriterSessionStarted = false
     private var audioWriterSessionStarted = false
+    private var pipWriterSessionStarted = false  // PIP mode session flag
     
     private var backPreviewLayer: AVCaptureVideoPreviewLayer?
     private var frontPreviewLayer: AVCaptureVideoPreviewLayer?
@@ -109,7 +116,7 @@ class CameraManager: NSObject, ObservableObject {
         if !forceReconfigure && isSessionConfigured && session != nil {
             print("✅ CameraManager: Session already configured - reusing existing session")
             
-            if !session!.isRunning {
+            if let session = session, !session.isRunning {
                 sessionQueue.async {
                     self.session?.startRunning()
                     DispatchQueue.main.async {
@@ -161,8 +168,8 @@ class CameraManager: NSObject, ObservableObject {
         newSession.beginConfiguration()
         
         // Setup cameras based on mode
-        let shouldSetupBack = (cameraMode == .backOnly || cameraMode == .dual)
-        let shouldSetupFront = (cameraMode == .frontOnly || cameraMode == .dual)
+        let shouldSetupBack = (cameraMode == .backOnly || cameraMode == .dual || cameraMode == .picInPic)
+        let shouldSetupFront = (cameraMode == .frontOnly || cameraMode == .dual || cameraMode == .picInPic)
         
         // Setup back camera with best available camera (ultra-wide if available)
         if shouldSetupBack {
@@ -501,6 +508,7 @@ class CameraManager: NSObject, ObservableObject {
     // MARK: - Photo Capture (Frame Capture - INSTANT!)
     func captureDualPhotos(withFlash: Bool = false, completion: @escaping (UIImage?, UIImage?) -> Void) {
         print("📸 CameraManager: captureDualPhotos called - using frame capture")
+        print("📸 CameraManager: Current camera mode: \(cameraMode.displayName)")
         
         // Trigger flash if requested
         if withFlash {
@@ -523,20 +531,143 @@ class CameraManager: NSObject, ObservableObject {
                 let frontFrame = self.lastFrontFrame
                 let backCount = self.backFrameCount
                 let frontCount = self.frontFrameCount
+                let currentMode = self.cameraMode
                 self.frameLock.unlock()
                 
                 print("📸 CameraManager: Frame status - Back: \(backFrame != nil) (count: \(backCount)), Front: \(frontFrame != nil) (count: \(frontCount))")
-                print("📸 CameraManager: Converting frames to images...")
-                let backImage = self.imageFromSampleBuffer(backFrame, isFrontCamera: false)
-                let frontImage = self.imageFromSampleBuffer(frontFrame, isFrontCamera: true)
                 
-                print("📸 CameraManager: Back image: \(backImage != nil), Front image: \(frontImage != nil)")
+                // Only capture frames based on current camera mode
+                let backImage: UIImage?
+                let frontImage: UIImage?
+                
+                switch currentMode {
+                case .backOnly:
+                    print("📸 CameraManager: Back only mode - capturing only back camera")
+                    backImage = self.imageFromSampleBuffer(backFrame, isFrontCamera: false)
+                    frontImage = nil
+                    
+                case .frontOnly:
+                    print("📸 CameraManager: Front only mode - capturing only front camera")
+                    backImage = nil
+                    frontImage = self.imageFromSampleBuffer(frontFrame, isFrontCamera: true)
+                    
+                case .dual:
+                    print("📸 CameraManager: Dual mode - capturing both cameras")
+                    backImage = self.imageFromSampleBuffer(backFrame, isFrontCamera: false)
+                    frontImage = self.imageFromSampleBuffer(frontFrame, isFrontCamera: true)
+                    
+                case .picInPic:
+                    // This method shouldn't be called for PIP mode, but handle it
+                    print("⚠️ CameraManager: PIP mode in captureDualPhotos (shouldn't happen)")
+                    backImage = self.imageFromSampleBuffer(backFrame, isFrontCamera: false)
+                    frontImage = self.imageFromSampleBuffer(frontFrame, isFrontCamera: true)
+                }
+                
+                print("📸 CameraManager: Result - Back image: \(backImage != nil), Front image: \(frontImage != nil)")
                 
                 DispatchQueue.main.async {
                     completion(backImage, frontImage)
                 }
             }
         }
+    }
+    
+    /// Capture PIP photo - compose both cameras into single image
+    func capturePIPPhoto(withFlash: Bool = false, completion: @escaping (UIImage?) -> Void) {
+        print("📸 CameraManager: capturePIPPhoto - capturing preview screen (NEW METHOD)")
+        
+        // Trigger flash if requested
+        if withFlash {
+            triggerFlashForCapture()
+            // Wait a moment for flash to activate
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.capturePreviewScreenshot(completion: completion)
+            }
+        } else {
+            capturePreviewScreenshot(completion: completion)
+        }
+    }
+    
+    /// Capture current preview screen as photo (what user sees on screen)
+    private func capturePreviewScreenshot(completion: @escaping (UIImage?) -> Void) {
+        // Ensure we're on main thread since we're capturing UI
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else {
+                completion(nil)
+                return
+            }
+            
+            // Capture preview screen
+            guard let previewImage = self.previewCaptureManager.capturePreviewFrame() else {
+                print("❌ CameraManager: Failed to capture preview screen")
+                completion(nil)
+                return
+            }
+            
+            // Apply pre-rotation correction for PIP photos
+            // Screen capture is already correctly oriented, but correctImageOrientation()
+            // will rotate it by 90° CW. We need to pre-rotate 90° CCW to compensate.
+            let correctedImage = self.preRotatePIPPhotoForSaving(previewImage)
+            
+            print("✅ CameraManager: PIP photo captured from preview screen")
+            print("   Original size: \(previewImage.size)")
+            print("   Corrected size: \(correctedImage.size)")
+            print("   Applied pre-rotation to compensate for savePhotoToLibrary rotation")
+            
+            completion(correctedImage)
+        }
+    }
+    
+    /// Pre-rotate PIP photo 90° clockwise to compensate for correctImageOrientation()
+    /// Screen captures are already in correct orientation, but savePhotoToLibrary will rotate
+    /// them, so we pre-rotate 90° CW to end up with correct final orientation
+    private func preRotatePIPPhotoForSaving(_ image: UIImage) -> UIImage {
+        guard let cgImage = image.cgImage else { return image }
+        
+        let deviceOrientation = UIDevice.current.orientation
+        
+        // Only apply compensation in portrait mode (where correctImageOrientation rotates)
+        guard deviceOrientation == .portrait || !deviceOrientation.isValidInterfaceOrientation else {
+            print("📸 CameraManager: No pre-rotation needed (non-portrait orientation)")
+            return image
+        }
+        
+        print("📸 CameraManager: Pre-rotating PIP photo 90° CW to compensate for save rotation")
+        
+        // Rotate 90° clockwise
+        let width = cgImage.height
+        let height = cgImage.width
+        
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo.rawValue
+        ) else {
+            print("❌ CameraManager: Failed to create graphics context for rotation")
+            return image
+        }
+        
+        // Rotate 90° clockwise: translate and rotate
+        context.translateBy(x: CGFloat(width), y: 0)
+        context.rotate(by: .pi / 2)
+        
+        // Draw the original image
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+        
+        // Create rotated image
+        guard let rotatedCGImage = context.makeImage() else {
+            print("❌ CameraManager: Failed to create rotated image")
+            return image
+        }
+        
+        return UIImage(cgImage: rotatedCGImage, scale: image.scale, orientation: .up)
     }
     
     // MARK: - Orientation Helpers
@@ -626,35 +757,9 @@ class CameraManager: NSObject, ObservableObject {
             ciContext.render(ciImage, to: outputBuffer, bounds: normalizedExtent, colorSpace: CGColorSpaceCreateDeviceRGB())
         }
         
-        // Create new sample buffer with rotated pixel buffer
-        var newSampleBuffer: CMSampleBuffer?
-        var timingInfo = CMSampleTimingInfo()
-        timingInfo.presentationTimeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        timingInfo.duration = CMSampleBufferGetDuration(sampleBuffer)
-        timingInfo.decodeTimeStamp = CMSampleBufferGetDecodeTimeStamp(sampleBuffer)
-        
-        var formatDescription: CMFormatDescription?
-        let formatStatus = CMVideoFormatDescriptionCreateForImageBuffer(
-            allocator: kCFAllocatorDefault,
-            imageBuffer: outputBuffer,
-            formatDescriptionOut: &formatDescription
-        )
-        
-        guard formatStatus == noErr, let format = formatDescription else {
-            print("⚠️ Failed to create format description: \(formatStatus)")
-            return sampleBuffer
-        }
-        
-        let sampleBufferStatus = CMSampleBufferCreateReadyWithImageBuffer(
-            allocator: kCFAllocatorDefault,
-            imageBuffer: outputBuffer,
-            formatDescription: format,
-            sampleTiming: &timingInfo,
-            sampleBufferOut: &newSampleBuffer
-        )
-        
-        guard sampleBufferStatus == noErr, let rotatedSample = newSampleBuffer else {
-            print("⚠️ Failed to create rotated sample buffer: \(sampleBufferStatus)")
+        // Create new sample buffer using shared utility method
+        guard let rotatedSample = ImageUtils.createSampleBuffer(from: outputBuffer, copying: sampleBuffer) else {
+            print("⚠️ Failed to create rotated sample buffer")
             return sampleBuffer
         }
         
@@ -666,62 +771,9 @@ class CameraManager: NSObject, ObservableObject {
         
         // AVAssetWriter transform说明：
         // - 相机原始输出：LandscapeRight（横向，home键在右）
-        // - Transform告诉播放器如何变换这个横向视频
-        // - 竖屏拍摄时，需要顺时针90度（.pi/2）让播放器正确显示
+        // Use shared utility method for consistent video transform
+        transform = ImageUtils.videoTransform(for: orientation, isFrontCamera: isFrontCamera)
         
-        if isFrontCamera {
-            // Front camera: 先镜像后旋转（在旋转后的坐标系镜像）
-            switch orientation {
-            case .portrait:
-                // 竖屏：顺时针90度 + 镜像
-                transform = CGAffineTransform(scaleX: -1, y: 1)
-                transform = transform.rotated(by: .pi / 2)
-                print("🎥 Front Portrait: Mirror + 90° CW")
-            case .portraitUpsideDown:
-                // 倒竖屏：逆时针90度 + 镜像
-                transform = CGAffineTransform(scaleX: -1, y: 1)
-                transform = transform.rotated(by: -.pi / 2)
-                print("🎥 Front Portrait Upside Down: Mirror + 90° CCW")
-            case .landscapeLeft:
-                // 横屏左：镜像
-                transform = CGAffineTransform(scaleX: -1, y: 1)
-                print("🎥 Front Landscape Left: Mirror only")
-            case .landscapeRight:
-                // 横屏右：180度 + 镜像
-                transform = CGAffineTransform(scaleX: -1, y: 1)
-                transform = transform.rotated(by: .pi)
-                print("🎥 Front Landscape Right: Mirror + 180°")
-            default:
-                transform = CGAffineTransform(scaleX: -1, y: 1)
-                transform = transform.rotated(by: .pi / 2)
-                print("🎥 Front Default: Mirror + 90° CW")
-            }
-        } else {
-            // Back camera - 只旋转
-            switch orientation {
-            case .portrait:
-                // 竖屏：顺时针90度
-                transform = CGAffineTransform(rotationAngle: .pi / 2)
-                print("🎥 Back Portrait: 90° CW")
-            case .portraitUpsideDown:
-                // 倒竖屏：逆时针90度
-                transform = CGAffineTransform(rotationAngle: -.pi / 2)
-                print("🎥 Back Portrait Upside Down: 90° CCW")
-            case .landscapeLeft:
-                // 横屏左：不旋转
-                transform = CGAffineTransform.identity
-                print("🎥 Back Landscape Left: No rotation")
-            case .landscapeRight:
-                // 横屏右：180度
-                transform = CGAffineTransform(rotationAngle: .pi)
-                print("🎥 Back Landscape Right: 180°")
-            default:
-                transform = CGAffineTransform(rotationAngle: .pi / 2)
-                print("🎥 Back Default: 90° CW")
-            }
-        }
-        
-        print("🎥 Transform matrix: [a=\(String(format: "%.2f", transform.a)), b=\(String(format: "%.2f", transform.b)), c=\(String(format: "%.2f", transform.c)), d=\(String(format: "%.2f", transform.d))]")
         return transform
     }
     
@@ -988,13 +1040,152 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
     
+    // MARK: - PIP Video Recording
+    func startPIPVideoRecording(completion: @escaping (URL?, Error?) -> Void) {
+        print("🎥 CameraManager: startPIPVideoRecording called (FRAME COMPOSITION MODE)")
+        
+        guard !isRecording else {
+            print("⚠️ CameraManager: Already recording")
+            return
+        }
+        
+        // Clean up any previous writers first
+        cleanupWriters()
+        
+        // Set recording flags on main thread (Published properties should be set on main)
+        DispatchQueue.main.async { [weak self] in
+            self?.isRecording = true
+            self?.isPIPRecordingMode = true
+            self?.recordingDuration = 0
+            self?.recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+                self?.recordingDuration += 0.2
+            }
+            print("✅ CameraManager: PIP recording started (frame composition mode)")
+        }
+        
+        // Do all heavy work asynchronously
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Create output URLs
+            let pipURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("pip_\(UUID().uuidString)")
+                .appendingPathExtension("mov")
+            
+            let audioURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("audio_\(UUID().uuidString)")
+                .appendingPathExtension("m4a")
+            
+            self.pipOutputURL = pipURL
+            self.audioOutputURL = audioURL
+            print("🎥 CameraManager: PIP URL: \(pipURL)")
+            print("🎥 CameraManager: Audio URL: \(audioURL)")
+            
+            do {
+                // Get recording settings
+                let dimensions = self.currentResolution.dimensions
+                let fps = self.currentFrameRate.rawValue
+                
+                // Get device orientation
+                var deviceOrientation = UIDevice.current.orientation
+                if !deviceOrientation.isValidInterfaceOrientation {
+                    deviceOrientation = .portrait
+                }
+                print("🎥 CameraManager: PIP recording orientation: \(deviceOrientation.rawValue)")
+                
+                // Calculate video dimensions based on orientation
+                let isPortrait = deviceOrientation == .portrait || deviceOrientation == .portraitUpsideDown
+                let videoWidth = isPortrait ? Int(dimensions.height) : Int(dimensions.width)
+                let videoHeight = isPortrait ? Int(dimensions.width) : Int(dimensions.height)
+                
+                print("🎥 CameraManager: Video resolution: \(videoWidth)x\(videoHeight) at \(fps)fps")
+                
+                // Create PIP video writer (for composed frames)
+                let pipWriter = try AVAssetWriter(url: pipURL, fileType: .mov)
+                
+                let pipVideoSettings: [String: Any] = [
+                    AVVideoCodecKey: AVVideoCodecType.h264,
+                    AVVideoWidthKey: videoWidth,
+                    AVVideoHeightKey: videoHeight,
+                    AVVideoCompressionPropertiesKey: [
+                        AVVideoAverageBitRateKey: videoWidth * videoHeight * 10,
+                        AVVideoExpectedSourceFrameRateKey: fps,
+                        AVVideoMaxKeyFrameIntervalKey: fps * 2,
+                        AVVideoProfileLevelKey: AVVideoProfileLevelH264BaselineAutoLevel
+                    ]
+                ]
+                
+                let pipVideoInput = AVAssetWriterInput(mediaType: .video, outputSettings: pipVideoSettings)
+                pipVideoInput.expectsMediaDataInRealTime = true
+                pipVideoInput.transform = CGAffineTransform.identity
+                
+                if pipWriter.canAdd(pipVideoInput) {
+                    pipWriter.add(pipVideoInput)
+                    self.pipVideoWriter = pipWriter
+                    self.pipVideoWriterInput = pipVideoInput
+                    print("✅ CameraManager: PIP video writer created")
+                }
+                
+                // Create audio writer
+                let audioWriter = try AVAssetWriter(url: audioURL, fileType: .m4a)
+                let audioSettings: [String: Any] = [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 44100,
+                    AVNumberOfChannelsKey: 1
+                ]
+                let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+                audioInput.expectsMediaDataInRealTime = true
+                
+                if audioWriter.canAdd(audioInput) {
+                    audioWriter.add(audioInput)
+                    self.audioWriter = audioWriter
+                    self.audioWriterInput = audioInput
+                    print("✅ CameraManager: Audio writer created")
+                }
+                
+                // Start writing
+                pipWriter.startWriting()
+                audioWriter.startWriting()
+                
+                // Reset flags
+                self.recordingStartTime = nil
+                self.pipWriterSessionStarted = false
+                self.audioWriterSessionStarted = false
+                self.recordingOrientation = deviceOrientation
+                
+                print("✅ CameraManager: PIP recording setup complete! (frame composition mode)")
+                
+                DispatchQueue.main.async {
+                    completion(pipURL, nil)
+                }
+                
+            } catch {
+                print("❌ CameraManager: Failed to setup PIP recording: \(error)")
+                DispatchQueue.main.async {
+                    self.isRecording = false
+                    self.isPIPRecordingMode = false
+                    self.recordingTimer?.invalidate()
+                    self.recordingTimer = nil
+                    completion(nil, error)
+                }
+            }
+        }
+    }
+    
     func stopVideoRecording(completion: @escaping (URL?, URL?, URL?) -> Void) {
         print("🎥 CameraManager: stopVideoRecording called")
         print("🎥 CameraManager: Current isRecording = \(isRecording)")
+        print("🎥 CameraManager: isPIPRecordingMode = \(isPIPRecordingMode)")
         
         guard isRecording else {
             print("⚠️ CameraManager: Not recording, nothing to stop")
             completion(nil, nil, nil)
+            return
+        }
+        
+        // Check if this is PIP recording mode
+        if isPIPRecordingMode {
+            stopPIPVideoRecording(completion: completion)
             return
         }
         
@@ -1119,9 +1310,106 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
     
+    private func stopPIPVideoRecording(completion: @escaping (URL?, URL?, URL?) -> Void) {
+        print("🎥 CameraManager: stopPIPVideoRecording called (frame composition mode)")
+        print("🎥 CameraManager: Current isRecording = \(isRecording)")
+        
+        // Stop timer on main thread
+        // Stop recording flags immediately on main thread
+        DispatchQueue.main.async { [weak self] in
+            self?.isRecording = false
+            self?.isPIPRecordingMode = false
+            self?.recordingTimer?.invalidate()
+            self?.recordingTimer = nil
+            print("✅ CameraManager: Recording flags cleared and timer stopped")
+        }
+        
+        print("🎥 CameraManager: Stopping PIP recording...")
+        
+        sessionQueue.async { [weak self] in
+            guard let self = self else {
+                completion(nil, nil, nil)
+                return
+            }
+            
+            print("🎥 CameraManager: Marking PIP inputs as finished...")
+            
+            // Mark inputs as finished with safety check
+            if let pipInput = self.pipVideoWriterInput, let pipWriter = self.pipVideoWriter, pipWriter.status == .writing {
+                pipInput.markAsFinished()
+            }
+            if let audioInput = self.audioWriterInput, let audioWriter = self.audioWriter, audioWriter.status == .writing {
+                audioInput.markAsFinished()
+            }
+            
+            var pipVideoURL: URL?
+            var audioURL: URL?
+            
+            let group = DispatchGroup()
+            
+            // Finish PIP video writing
+            if let pipWriter = self.pipVideoWriter {
+                group.enter()
+                pipWriter.finishWriting {
+                    if pipWriter.status == .completed {
+                        print("✅ CameraManager: PIP video writing completed")
+                        pipVideoURL = self.pipOutputURL
+                    } else if let error = pipWriter.error {
+                        print("❌ CameraManager: PIP video writing failed: \(error)")
+                    } else {
+                        print("❌ CameraManager: PIP video writing failed with unknown error")
+                    }
+                    group.leave()
+                }
+            } else {
+                print("⚠️ CameraManager: No PIP video writer")
+            }
+            
+            // Finish audio writing
+            if let audioWriter = self.audioWriter {
+                group.enter()
+                audioWriter.finishWriting {
+                    if audioWriter.status == .completed {
+                        print("✅ CameraManager: Audio writing completed")
+                        audioURL = self.audioOutputURL
+                    } else {
+                        print("❌ CameraManager: Audio writing failed")
+                    }
+                    group.leave()
+                }
+            } else {
+                print("⚠️ CameraManager: No audio writer")
+            }
+            
+            // Wait for all writers to finish
+            group.wait()
+            
+            // Clean up
+            self.pipVideoWriter = nil
+            self.pipVideoWriterInput = nil
+            self.audioWriter = nil
+            self.audioWriterInput = nil
+            
+            DispatchQueue.main.async {
+                print("🎥 CameraManager: PIP recording save complete")
+                print("   PIP Video URL: \(pipVideoURL?.path ?? "nil")")
+                print("   Audio URL: \(audioURL?.path ?? "nil")")
+                completion(pipVideoURL, nil, audioURL)
+            }
+        }
+    }
+    
     // MARK: - Camera Controls
     func switchCamera() {
         isDualCameraMode.toggle()
+    }
+    
+    /// Toggle preview camera (swap main and PIP displays)
+    func togglePreviewCamera() {
+        print("🔄 CameraManager: Toggle preview camera requested")
+        // This will be handled by DualCameraPreview's PreviewSwitcher
+        // Just need to trigger a notification to the preview layer
+        NotificationCenter.default.post(name: NSNotification.Name("TogglePreviewCamera"), object: nil)
     }
     
     func setFlashMode(_ mode: AVCaptureDevice.FlashMode) {
@@ -1199,9 +1487,83 @@ class CameraManager: NSObject, ObservableObject {
     }
     
     func stopSession() {
+        print("🛑 CameraManager: stopSession called")
+        
+        // Force stop any ongoing recording
+        if isRecording {
+            print("⚠️ CameraManager: Force stopping recording in stopSession")
+            isRecording = false
+            isPIPRecordingMode = false
+            DispatchQueue.main.async { [weak self] in
+                self?.recordingTimer?.invalidate()
+                self?.recordingTimer = nil
+            }
+        }
+        
+        // Clean up all writers
+        cleanupWriters()
+        
         sessionQueue.async { [weak self] in
             self?.session?.stopRunning()
+            print("✅ CameraManager: Session stopped")
         }
+    }
+    
+    // MARK: - Writer Cleanup
+    private func cleanupWriters() {
+        print("🧹 CameraManager: Cleaning up writers...")
+        
+        // Cancel PIP video writer
+        if let pipWriter = self.pipVideoWriter {
+            if pipWriter.status == .writing {
+                self.pipVideoWriterInput?.markAsFinished()
+                pipWriter.cancelWriting()
+                print("🧹 CameraManager: Cancelled pipVideoWriter")
+            }
+        }
+        self.pipVideoWriter = nil
+        self.pipVideoWriterInput = nil
+        
+        // Cancel audio writer
+        if let audioWriter = self.audioWriter {
+            if audioWriter.status == .writing {
+                self.audioWriterInput?.markAsFinished()
+                audioWriter.cancelWriting()
+                print("🧹 CameraManager: Cancelled audioWriter")
+            }
+        }
+        self.audioWriter = nil
+        self.audioWriterInput = nil
+        
+        // Cancel back video writer  
+        if let backWriter = self.backVideoWriter {
+            if backWriter.status == .writing {
+                self.backVideoWriterInput?.markAsFinished()
+                backWriter.cancelWriting()
+                print("🧹 CameraManager: Cancelled backVideoWriter")
+            }
+        }
+        self.backVideoWriter = nil
+        self.backVideoWriterInput = nil
+        
+        // Cancel front video writer
+        if let frontWriter = self.frontVideoWriter {
+            if frontWriter.status == .writing {
+                self.frontVideoWriterInput?.markAsFinished()
+                frontWriter.cancelWriting()
+                print("🧹 CameraManager: Cancelled frontVideoWriter")
+            }
+        }
+        self.frontVideoWriter = nil
+        self.frontVideoWriterInput = nil
+        
+        // Reset session flags
+        self.backWriterSessionStarted = false
+        self.frontWriterSessionStarted = false
+        self.pipWriterSessionStarted = false
+        self.audioWriterSessionStarted = false
+        
+        print("✅ CameraManager: All writers cleaned up")
     }
     
     // MARK: - Format Settings Application
@@ -1402,7 +1764,7 @@ class CameraManager: NSObject, ObservableObject {
             // Get the appropriate device based on camera mode
             let device: AVCaptureDevice?
             switch self.cameraMode {
-            case .backOnly, .dual:
+            case .backOnly, .dual, .picInPic:
                 device = self.backCameraInput?.device
             case .frontOnly:
                 device = self.frontCameraInput?.device
@@ -1589,6 +1951,48 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
     
+    // MARK: - Filter Application for Video
+    /// Apply current filter to a sample buffer for video recording
+    private func applyFilterToSampleBuffer(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
+        guard currentFilter != .none,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            return sampleBuffer
+        }
+        
+        // Apply filter to CIImage
+        var ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        ciImage = currentFilter.apply(to: ciImage)
+        
+        // Create new pixel buffer with filtered image
+        var filteredPixelBuffer: CVPixelBuffer?
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary
+        ]
+        
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            attributes as CFDictionary,
+            &filteredPixelBuffer
+        )
+        
+        guard status == kCVReturnSuccess, let outputBuffer = filteredPixelBuffer else {
+            return sampleBuffer
+        }
+        
+        // Render filtered image to pixel buffer
+        ciContext.render(ciImage, to: outputBuffer)
+        
+        // Create new sample buffer with filtered pixel buffer
+        return ImageUtils.createSampleBuffer(from: outputBuffer, copying: sampleBuffer) ?? sampleBuffer
+    }
+    
     // MARK: - Photo Library Saving
     func savePhotoToLibrary(_ image: UIImage, isFrontCamera: Bool, completion: @escaping (Bool, Error?) -> Void) {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
@@ -1636,20 +2040,28 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
         
         // Determine which camera by checking the connection's input device
         if output is AVCaptureVideoDataOutput {
+            // Capture recording state once at the beginning to avoid multiple property accesses
+            let currentlyRecording = isRecording
+            let currentlyPIPMode = isPIPRecordingMode
+            
             // Check camera position through connection
-            if let inputPort = connection.inputPorts.first,
-               let deviceInput = inputPort.input as? AVCaptureDeviceInput {
-                
-                let position = deviceInput.device.position
-                
-                if position == .back {
-                    // Back camera frame - wrap in autoreleasepool for better memory management
-                    autoreleasepool {
+            guard let inputPort = connection.inputPorts.first,
+                  let deviceInput = inputPort.input as? AVCaptureDeviceInput else {
+                print("⚠️ CameraManager: Could not determine camera position from connection")
+                return
+            }
+            
+            let position = deviceInput.device.position
+            
+            switch position {
+            case .back:
+                // Back camera frame - wrap in autoreleasepool for better memory management
+                autoreleasepool {
                         frameLock.lock()
                         lastBackFrame = sampleBuffer
                         backFrameCount += 1
                         // Reduce logging frequency to save CPU
-                        if backFrameCount % 120 == 0 {
+                        if backFrameCount % 300 == 0 {
                             print("📹 CameraManager: Received \(backFrameCount) back camera frames")
                         }
                         frameLock.unlock()
@@ -1666,48 +2078,168 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                     
                     // Write to video file if recording
                     // CRITICAL: Check isRecording AND writer status to prevent race condition crashes
-                    if isRecording {
-                        if let videoInput = backVideoWriterInput, 
-                           let writer = backVideoWriter,
+                    
+                    if currentlyRecording && currentlyPIPMode {
+                        // PIP recording mode - compose both cameras
+                        // Log first frame to confirm we're entering this code path
+                        if backFrameCount == 1 {
+                            print("🎬 CameraManager: FIRST back frame in PIP recording mode")
+                        }
+                        
+                        // Extra safety: verify writer exists and is in valid state
+                        if let videoInput = pipVideoWriterInput,
+                           let writer = pipVideoWriter,
                            writer.status == .writing,
-                           videoInput.isReadyForMoreMediaData {
-                            // Start writer session only when we have stable frames from both cameras
-                            // Use original buffer timestamp for session start
-                            if !backWriterSessionStarted, frontFrameCount >= 3 {  // Wait for front camera to have at least 3 frames (skip black frames)
-                                let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                                if writer.status == .writing {  // Double check writer is still ready
-                                    writer.startSession(atSourceTime: timestamp)
-                                    recordingStartTime = timestamp
-                                    backWriterSessionStarted = true
-                                    print("✅ CameraManager: Back video writer session started at \(timestamp.seconds) (both cameras stable)")
-                                } else {
-                                    print("⚠️ CameraManager: Cannot start session, writer status: \(writer.status.rawValue)")
+                           videoInput.isReadyForMoreMediaData,
+                           frontFrameCount >= 3 {  // Wait for front camera
+                                
+                                if backFrameCount <= 5 {
+                                    print("🎬 CameraManager: Processing PIP frame #\(backFrameCount), front frames: \(frontFrameCount)")
                                 }
-                            }
-                            // CRITICAL: Only append after session has started and verify recording still active
-                            if backWriterSessionStarted && isRecording && writer.status == .writing {
-                                // Rotate pixel buffer if in portrait mode
-                                let rotatedBuffer = self.rotateSampleBufferIfNeeded(sampleBuffer, orientation: self.recordingOrientation, isFrontCamera: false)
-                                // Double check writer is still ready after rotation
-                                if videoInput.isReadyForMoreMediaData && writer.status == .writing {
-                                    let success = videoInput.append(rotatedBuffer)
-                                    if !success && backFrameCount % 90 == 0 {
-                                        print("⚠️ CameraManager: Failed to append back video frame, writer status: \(writer.status.rawValue)")
-                                    }
-                                    if backFrameCount % 60 == 0 {
-                                        print("📹 CameraManager: Back video frames appended (count: \(backFrameCount))")
+                                
+                                // Start writer session
+                                if !pipWriterSessionStarted {
+                                    let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                                    if writer.status == .writing {
+                                        writer.startSession(atSourceTime: timestamp)
+                                        recordingStartTime = timestamp
+                                        pipWriterSessionStarted = true
+                                        print("✅ CameraManager: PIP writer session started at \(timestamp.seconds)")
                                     }
                                 }
+                                
+                                // Compose and append PIP frame
+                                if pipWriterSessionStarted && currentlyRecording && writer.status == .writing {
+                                    // Get front camera buffer
+                                    frameLock.lock()
+                                    let frontFrame = lastFrontFrame
+                                    frameLock.unlock()
+                                    
+                                    if let frontFrame = frontFrame,
+                                       let backPixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
+                                       let frontPixelBuffer = CMSampleBufferGetImageBuffer(frontFrame) {
+                                        
+                                        // Rotate both buffers first
+                                        let rotatedBackBuffer = self.rotateSampleBufferIfNeeded(sampleBuffer, orientation: self.recordingOrientation, isFrontCamera: false)
+                                        let rotatedFrontBuffer = self.rotateSampleBufferIfNeeded(frontFrame, orientation: self.recordingOrientation, isFrontCamera: true)
+                                        
+                                        if let rotatedBackPixel = CMSampleBufferGetImageBuffer(rotatedBackBuffer),
+                                           let rotatedFrontPixel = CMSampleBufferGetImageBuffer(rotatedFrontBuffer) {
+                                            
+                                            // Determine orientation
+                                            let isLandscape = self.recordingOrientation == .landscapeLeft || self.recordingOrientation == .landscapeRight
+                                            
+                                            // Get current preview switcher state (thread-safe read)
+                                            let isBackMain = self.previewSwitcher?.isBackCameraMain ?? true
+                                            
+                                            // Compose PIP frame with current switcher state and filter
+                                            let composeStart = CFAbsoluteTimeGetCurrent()
+                                            if let composedBuffer = PIPComposer.composePIPVideoFrame(
+                                                backBuffer: rotatedBackPixel,
+                                                frontBuffer: rotatedFrontPixel,
+                                                isLandscape: isLandscape,
+                                                isBackCameraMain: isBackMain,
+                                                ciContext: self.ciContext,
+                                                filter: self.currentFilter
+                                            ) {
+                                                let composeTime = (CFAbsoluteTimeGetCurrent() - composeStart) * 1000
+                                                if backFrameCount <= 10 || composeTime > 50 {
+                                                    print("⏱️ PIP compose took \(String(format: "%.1f", composeTime))ms")
+                                                }
+                                                // Create new sample buffer with composed pixel buffer
+                                                var timingInfo = CMSampleTimingInfo()
+                                                timingInfo.presentationTimeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                                                timingInfo.duration = CMSampleBufferGetDuration(sampleBuffer)
+                                                timingInfo.decodeTimeStamp = CMSampleBufferGetDecodeTimeStamp(sampleBuffer)
+                                                
+                                                var formatDescription: CMFormatDescription?
+                                                CMVideoFormatDescriptionCreateForImageBuffer(
+                                                    allocator: kCFAllocatorDefault,
+                                                    imageBuffer: composedBuffer,
+                                                    formatDescriptionOut: &formatDescription
+                                                )
+                                                
+                                                if let format = formatDescription {
+                                                    var newSampleBuffer: CMSampleBuffer?
+                                                    CMSampleBufferCreateReadyWithImageBuffer(
+                                                        allocator: kCFAllocatorDefault,
+                                                        imageBuffer: composedBuffer,
+                                                        formatDescription: format,
+                                                        sampleTiming: &timingInfo,
+                                                        sampleBufferOut: &newSampleBuffer
+                                                    )
+                                                    
+                                                    if let pipSample = newSampleBuffer,
+                                                       videoInput.isReadyForMoreMediaData && writer.status == .writing {
+                                                        let success = videoInput.append(pipSample)
+                                                        if backFrameCount <= 5 {
+                                                            print("✅ CameraManager: PIP frame #\(backFrameCount) appended: \(success)")
+                                                        }
+                                                        if !success && backFrameCount % 300 == 0 {
+                                                            print("⚠️ CameraManager: Failed to append PIP frame")
+                                                        }
+                                                        if backFrameCount % 300 == 0 {
+                                                            print("📹 CameraManager: PIP frames appended (count: \(backFrameCount))")
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if backFrameCount % 300 == 0 {
+                                if frontFrameCount < 3 {
+                                    print("⏳ CameraManager: PIP waiting for front camera frames (\(frontFrameCount)/3)...")
+                                }
                             }
-                        } else if backFrameCount % 30 == 0 {
-                            if frontFrameCount < 3 {
-                                print("⏳ CameraManager: Waiting for front camera frames (\(frontFrameCount)/3)...")
+                        } else {
+                            // Normal dual recording mode
+                            if let videoInput = backVideoWriterInput, 
+                               let writer = backVideoWriter,
+                               writer.status == .writing,
+                               videoInput.isReadyForMoreMediaData {
+                                // Start writer session only when we have stable frames from both cameras
+                                // Use original buffer timestamp for session start
+                                if !backWriterSessionStarted, frontFrameCount >= 3 {  // Wait for front camera to have at least 3 frames (skip black frames)
+                                    let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                                    if writer.status == .writing {  // Double check writer is still ready
+                                        writer.startSession(atSourceTime: timestamp)
+                                        recordingStartTime = timestamp
+                                        backWriterSessionStarted = true
+                                        print("✅ CameraManager: Back video writer session started at \(timestamp.seconds) (both cameras stable)")
+                                    } else {
+                                        print("⚠️ CameraManager: Cannot start session, writer status: \(writer.status.rawValue)")
+                                    }
+                                }
+                                // CRITICAL: Only append after session has started and verify recording still active
+                                if backWriterSessionStarted && currentlyRecording && writer.status == .writing {
+                                    // Rotate pixel buffer if in portrait mode
+                                    var rotatedBuffer = self.rotateSampleBufferIfNeeded(sampleBuffer, orientation: self.recordingOrientation, isFrontCamera: false)
+                                    // Apply filter if enabled
+                                    if let filteredBuffer = self.applyFilterToSampleBuffer(rotatedBuffer) {
+                                        rotatedBuffer = filteredBuffer
+                                    }
+                                    // Double check writer is still ready after rotation and filter
+                                    if videoInput.isReadyForMoreMediaData && writer.status == .writing {
+                                        let success = videoInput.append(rotatedBuffer)
+                                        if !success && backFrameCount % 300 == 0 {
+                                            print("⚠️ CameraManager: Failed to append back video frame, writer status: \(writer.status.rawValue)")
+                                        }
+                                        if backFrameCount % 300 == 0 {
+                                            print("📹 CameraManager: Back video frames appended (count: \(backFrameCount))")
+                                        }
+                                    }
+                                }
+                            } else if backFrameCount % 30 == 0 {
+                                if frontFrameCount < 3 {
+                                    print("⏳ CameraManager: Waiting for front camera frames (\(frontFrameCount)/3)...")
+                                }
                             }
                         }
-                    }
-                } else if position == .front {
-                    // Front camera frame - wrap in autoreleasepool for better memory management
-                    autoreleasepool {
+                    
+            case .front:
+                // Front camera frame - wrap in autoreleasepool for better memory management
+                autoreleasepool {
                         frameLock.lock()
                         lastFrontFrame = sampleBuffer
                         frontFrameCount += 1
@@ -1715,7 +2247,7 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                             print("🎉 CameraManager: FIRST front camera frame received!")
                         }
                         // Reduce logging frequency to save CPU
-                        if frontFrameCount % 120 == 0 {
+                        if frontFrameCount % 300 == 0 {
                             print("📹 CameraManager: Received \(frontFrameCount) front camera frames")
                         }
                         frameLock.unlock()
@@ -1732,7 +2264,8 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                     
                     // Write to video file if recording
                     // CRITICAL: Check isRecording AND writer status to prevent race condition crashes
-                    if isRecording {
+                    // Reuse captured recording state from back camera section
+                    if currentlyRecording && !currentlyPIPMode {
                         if let videoInput = frontVideoWriterInput,
                            let writer = frontVideoWriter,
                            writer.status == .writing,
@@ -1748,27 +2281,41 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                                 }
                             }
                             // CRITICAL: Only append after session has started and verify recording still active
-                            if frontWriterSessionStarted && isRecording && writer.status == .writing {
+                            if frontWriterSessionStarted && currentlyRecording && writer.status == .writing {
                                 // Rotate pixel buffer if in portrait mode
-                                let rotatedBuffer = self.rotateSampleBufferIfNeeded(sampleBuffer, orientation: self.recordingOrientation, isFrontCamera: true)
-                                // Double check writer is still ready after rotation
+                                var rotatedBuffer = self.rotateSampleBufferIfNeeded(sampleBuffer, orientation: self.recordingOrientation, isFrontCamera: true)
+                                // Apply filter if enabled
+                                if let filteredBuffer = self.applyFilterToSampleBuffer(rotatedBuffer) {
+                                    rotatedBuffer = filteredBuffer
+                                }
+                                // Double check writer is still ready after rotation and filter
                                 if videoInput.isReadyForMoreMediaData && writer.status == .writing {
                                     let success = videoInput.append(rotatedBuffer)
-                                    if !success && frontFrameCount % 30 == 0 {
+                                    if !success && frontFrameCount % 300 == 0 {
                                         print("⚠️ CameraManager: Failed to append front video frame, writer status: \(writer.status.rawValue)")
                                     }
                                 }
                             }
                         }
                     }
-                }
-            } else {
-                print("⚠️ CameraManager: Could not determine camera position from connection")
+                
+            case .unspecified:
+                break
+                
+            @unknown default:
+                break
             }
-        } else if output is AVCaptureAudioDataOutput {
+        }
+        // End of: if output is AVCaptureVideoDataOutput
+        
+        // Check for audio output
+        if output is AVCaptureAudioDataOutput {
             // Audio data
             // CRITICAL: Check isRecording AND writer status to prevent race condition crashes
-            if isRecording {
+            // Capture recording state once
+            let currentlyRecording = isRecording
+            
+            if currentlyRecording {
                 if let audioInput = audioWriterInput,
                    let writer = audioWriter,
                    writer.status == .writing,
@@ -1779,7 +2326,7 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                         print("✅ CameraManager: Audio writer session started at \(startTime.seconds)")
                     }
                     // CRITICAL: Verify recording still active before append
-                    if audioWriterSessionStarted && isRecording {
+                    if audioWriterSessionStarted && currentlyRecording {
                         audioInput.append(sampleBuffer)
                     }
                 }
@@ -1787,3 +2334,4 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
         }
     }
 }
+

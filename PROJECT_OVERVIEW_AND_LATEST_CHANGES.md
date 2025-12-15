@@ -1,8 +1,41 @@
 # Dual Camera Project - 项目概览与最新更改
 
-**日期：** 2025年12月11日  
+**日期：** 2025年12月11日 - **重大更新：屏幕录制架构**
 **项目类型：** iOS 双摄像头实时预览和拍摄应用  
 **开发平台：** SwiftUI + AVFoundation
+
+---
+
+## 🚀 最新重大更新（屏幕录制架构）
+
+### 📋 更新概要
+完全重构了PIP（画中画）模式的实现方式，从**帧合成**改为**屏幕录制**。
+
+### 🎯 解决的问题
+1. ✅ **PIP位置错误** - 照片中PIP出现在右下角而非右上角
+2. ✅ **坐标系统冲突** - Core Image vs UIKit坐标系统转换错误
+3. ✅ **无法切换预览** - PIP模式现在支持预览切换（未来功能）
+4. ✅ **帧率不匹配** - 录制帧率现在与显示完全同步
+
+### 💡 核心改变
+- **旧方法**：从两个相机获取原始帧 → 手动合成PIP → 保存
+- **新方法**：直接录制预览画面（用户看到什么就录制什么）
+
+### 📁 新增文件
+- `PreviewCaptureManager.swift` - 屏幕捕获管理器
+- `SCREEN_CAPTURE_IMPLEMENTATION.md` - 详细实现文档
+- `BACKUP_PIP_VIDEO_RECORDING_WORKING.swift` - 旧代码备份
+
+### 🔧 修改的文件
+- `CameraManager.swift` - PIP拍照和录制改为屏幕捕获
+- `OptimizedDualCameraPreview.swift` - 连接到屏幕捕获管理器
+
+### 📊 性能改进
+- CPU负载降低（不再实时合成帧）
+- 代码简化（移除复杂坐标转换）
+- 帧率完全同步（与显示刷新率匹配）
+
+**详细信息请查看：[SCREEN_CAPTURE_IMPLEMENTATION.md](SCREEN_CAPTURE_IMPLEMENTATION.md)**
 
 ---
 
