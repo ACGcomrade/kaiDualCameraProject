@@ -247,16 +247,25 @@ class CameraViewModel: ObservableObject {
     func capturePhoto() {
         print("📸 ViewModel: Capturing photo (capture mode: \(captureMode.displayName), camera mode: \(cameraManager.cameraMode.displayName))...")
         
-        // Trigger screen flash and hardware flash if in auto mode
+        // Smart flash: only trigger appropriate flash based on camera mode
         let shouldFlash = flashMode == .auto
         if shouldFlash {
-            triggerScreenFlash()
+            triggerSmartFlash()
+            // Wait longer for flash to reach peak brightness (0.15s)
+            // This ensures both screen and hardware flash are at maximum intensity
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.performPhotoCapture()
+            }
+        } else {
+            performPhotoCapture()
         }
-        
+    }
+    
+    private func performPhotoCapture() {
         // Check if PIP camera mode
         if cameraManager.cameraMode == .picInPic {
             // Capture PIP composed photo
-            cameraManager.capturePIPPhoto(withFlash: shouldFlash) { [weak self] pipImage in
+            cameraManager.capturePIPPhoto(withFlash: false) { [weak self] pipImage in
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
                     print("📸 ViewModel: Received PIP image: \(pipImage != nil)")
@@ -274,7 +283,7 @@ class CameraViewModel: ObservableObject {
             }
         } else {
             // Capture based on camera mode (CameraManager now returns correct images based on mode)
-            cameraManager.captureDualPhotos(withFlash: shouldFlash) { [weak self] backImage, frontImage in
+            cameraManager.captureDualPhotos(withFlash: false) { [weak self] backImage, frontImage in
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
                     print("📸 ViewModel: Received back image: \(backImage != nil)")
@@ -299,9 +308,30 @@ class CameraViewModel: ObservableObject {
         }
     }
     
+    /// Smart flash: trigger appropriate flash based on camera mode
+    private func triggerSmartFlash() {
+        switch cameraManager.cameraMode {
+        case .frontOnly:
+            // Front camera only - use screen flash
+            print("⚡️ ViewModel: Front camera mode - using screen flash")
+            triggerScreenFlash()
+            
+        case .backOnly:
+            // Back camera only - use hardware flash
+            print("⚡️ ViewModel: Back camera mode - using hardware flash")
+            cameraManager.triggerFlashForCapture()
+            
+        case .dual, .picInPic:
+            // Dual/PIP mode - use both flashes for best results
+            print("⚡️ ViewModel: Dual/PIP mode - using both screen and hardware flash")
+            triggerScreenFlash()
+            cameraManager.triggerFlashForCapture()
+        }
+    }
+    
     /// Trigger screen flash effect (white screen + max brightness)
     private func triggerScreenFlash() {
-        print("⚡️ ViewModel: Triggering screen flash")
+        print("📱 ViewModel: Triggering screen flash")
         
         // Store original brightness
         let originalBrightness = UIScreen.main.brightness
@@ -312,8 +342,8 @@ class CameraViewModel: ObservableObject {
             UIScreen.main.brightness = 1.0
             self.showScreenFlash = true
             
-            // Hide and restore brightness after 0.15 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            // Keep flash on longer (0.5s total) to ensure photo capture happens during flash peak
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.showScreenFlash = false
                 UIScreen.main.brightness = originalBrightness
             }

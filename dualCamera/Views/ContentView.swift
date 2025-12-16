@@ -131,8 +131,20 @@ struct ContentView: View {
                                 
                                 Spacer()
                                 
-                                // Right side vertical buttons: Filter, Resolution, Frame Rate
+                                // Right side vertical buttons: Camera Mode, Filter, Resolution, Frame Rate
                                 VStack(spacing: 15) {
+                                    // Camera mode button
+                                    Button(action: {
+                                        switchCameraMode()
+                                    }) {
+                                        Image(systemName: viewModel.cameraManager.cameraMode.iconName)
+                                            .font(.system(size: 24))
+                                            .foregroundColor(.white)
+                                            .frame(width: 50, height: 50)
+                                            .background(Color.black.opacity(0.7))
+                                            .clipShape(Circle())
+                                    }
+                                    
                                     // Filter button
                                     Button(action: {
                                         switchFilter()
@@ -299,6 +311,8 @@ struct ContentView: View {
                                                     }
                                                 }
                                             }
+                                            .contentShape(Circle().scale(1.5))
+                                            .frame(width: 120, height: 120)
                                             
                                             Spacer()
                                             
@@ -474,37 +488,7 @@ struct ContentView: View {
                 .transition(.opacity)
             }
             
-            // Camera mode switch button for portrait (left top corner)
-            if viewModel.uiVisibilityManager.isUIVisible && viewModel.uiVisibilityManager.isPreviewVisible {
-                GeometryReader { geometry in
-                    let isLandscape = geometry.size.width > geometry.size.height
-                    
-                    if !isLandscape {
-                        // 竖屏：左上角
-                        VStack {
-                            HStack {
-                                Button(action: {
-                                    switchCameraMode()
-                                }) {
-                                    Image(systemName: viewModel.cameraManager.cameraMode.iconName)
-                                        .font(.system(size: 24))
-                                        .foregroundColor(.white)
-                                        .frame(width: 50, height: 50)
-                                        .background(Color.black.opacity(0.6))
-                                        .clipShape(Circle())
-                                }
-                                .padding(.leading, 20)
-                                .padding(.top, 60)
-                                
-                                Spacer()
-                            }
-                            
-                            Spacer()
-                        }
-                    }
-                }
-                .transition(.opacity)
-            }
+            // Camera mode button is now in the right side button group (竖屏时在右侧按钮组)
         
             // Capture button when preview is hidden (for stopping recording)
             // Always rendered but only visible when preview is hidden
@@ -541,6 +525,8 @@ struct ContentView: View {
                                 }
                             }
                         }
+                        .contentShape(Circle().scale(1.5))
+                        .frame(width: 120, height: 120)
                         .padding(.trailing, 40)
                     }
                 } else {
@@ -573,6 +559,8 @@ struct ContentView: View {
                                 }
                             }
                         }
+                        .contentShape(Circle().scale(1.5))
+                        .frame(width: 120, height: 120)
                         .padding(.bottom, 40)
                     }
                 }

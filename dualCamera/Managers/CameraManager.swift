@@ -6,18 +6,23 @@ import Photos
 class CameraManager: NSObject, ObservableObject {
     // Shared singleton for lightweight preview consumers
     static let shared = CameraManager()
+    
+    // MARK: - Managers
+    private let smartExposureManager = SmartExposureManager()
+    
     // MARK: - Properties
     @Published var session: AVCaptureMultiCamSession?
     private let sessionQueue = DispatchQueue(label: "sessionQueue", qos: .userInitiated)
-    private let backVideoDataQueue = DispatchQueue(label: "backVideoDataQueue", qos: .default)  // Balanced performance/efficiency
-    private let frontVideoDataQueue = DispatchQueue(label: "frontVideoDataQueue", qos: .default)  // Balanced performance/efficiency
+    // Lower priority for video queues to save battery (utility instead of default)
+    private let backVideoDataQueue = DispatchQueue(label: "backVideoDataQueue", qos: .utility, attributes: .concurrent)
+    private let frontVideoDataQueue = DispatchQueue(label: "frontVideoDataQueue", qos: .utility, attributes: .concurrent)
     private let audioDataQueue = DispatchQueue(label: "audioDataQueue", qos: .utility)
     private let rotationQueue = DispatchQueue(label: "videoRotationQueue", qos: .userInitiated, attributes: .concurrent)  // High priority for rotation
     private let settings = CameraSettings.shared
     // Use shared CIContext from ImageUtils for better performance
     private var ciContext: CIContext { ImageUtils.sharedCIContext }
     // How many frames between published preview image updates (reduce CPU by updating less frequently)
-    private let previewFrameInterval = 12  // Optimized for better battery life (updates ~2.5 times per second at 30fps)
+    private let previewFrameInterval = 15  // Further optimized for battery (updates ~2 times per second at 30fps)
     
     // Preview switcher reference (for PIP video recording)
     weak var previewSwitcher: PreviewSwitcher?
@@ -218,6 +223,9 @@ class CameraManager: NSObject, ObservableObject {
                 // Detect focal length mapping
                 self.cameraInfo = FocalLengthMapper.detectCameraInfo(for: backCamera)
                 
+                // Apply smart exposure settings for back camera
+                self.smartExposureManager.configureCamera(backCamera, isFrontCamera: false)
+                
                 // Verify zoom range matches what we detected in init()
                 print("✅ CameraManager: Zoom range verification:")
                 print("   Detected in init: \(self.minZoomFactor)x - \(self.maxZoomFactor)x")
@@ -265,6 +273,9 @@ class CameraManager: NSObject, ObservableObject {
                 } else {
                     print("⚠️ CameraManager: No multi-cam compatible format found for front camera")
                 }
+                
+                // Apply smart exposure settings for front camera
+                self.smartExposureManager.configureCamera(frontCamera, isFrontCamera: true)
                 
                 // Add video data output for front camera
                 let frontVideoOutput = AVCaptureVideoDataOutput()
@@ -505,65 +516,31 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Photo Capture (Frame Capture - INSTANT!)
+    // MARK: - Photo Capture (Optimized Frame Capture)
     func captureDualPhotos(withFlash: Bool = false, completion: @escaping (UIImage?, UIImage?) -> Void) {
-        print("📸 CameraManager: captureDualPhotos called - using frame capture")
-        print("📸 CameraManager: Current camera mode: \(cameraMode.displayName)")
+        print("📸 CameraManager: captureDualPhotos - mode: \(cameraMode.displayName)")
         
-        // Trigger flash if requested
-        if withFlash {
-            triggerFlashForCapture()
-        }
-        
-        // Use background queue to avoid blocking UI
+        // Use optimized frame capture
+        captureFromVideoFrames(completion: completion)
+    }
+    
+    // MARK: - Frame Capture (Optimized with reduced redundancy)
+    private func captureFromVideoFrames(completion: @escaping (UIImage?, UIImage?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             autoreleasepool {
                 guard let self = self else {
-                    print("❌ CameraManager: self is nil")
-                    DispatchQueue.main.async {
-                        completion(nil, nil)
-                    }
+                    DispatchQueue.main.async { completion(nil, nil) }
                     return
                 }
                 
                 self.frameLock.lock()
                 let backFrame = self.lastBackFrame
                 let frontFrame = self.lastFrontFrame
-                let backCount = self.backFrameCount
-                let frontCount = self.frontFrameCount
                 let currentMode = self.cameraMode
                 self.frameLock.unlock()
                 
-                print("📸 CameraManager: Frame status - Back: \(backFrame != nil) (count: \(backCount)), Front: \(frontFrame != nil) (count: \(frontCount))")
-                
-                // Only capture frames based on current camera mode
-                let backImage: UIImage?
-                let frontImage: UIImage?
-                
-                switch currentMode {
-                case .backOnly:
-                    print("📸 CameraManager: Back only mode - capturing only back camera")
-                    backImage = self.imageFromSampleBuffer(backFrame, isFrontCamera: false)
-                    frontImage = nil
-                    
-                case .frontOnly:
-                    print("📸 CameraManager: Front only mode - capturing only front camera")
-                    backImage = nil
-                    frontImage = self.imageFromSampleBuffer(frontFrame, isFrontCamera: true)
-                    
-                case .dual:
-                    print("📸 CameraManager: Dual mode - capturing both cameras")
-                    backImage = self.imageFromSampleBuffer(backFrame, isFrontCamera: false)
-                    frontImage = self.imageFromSampleBuffer(frontFrame, isFrontCamera: true)
-                    
-                case .picInPic:
-                    // This method shouldn't be called for PIP mode, but handle it
-                    print("⚠️ CameraManager: PIP mode in captureDualPhotos (shouldn't happen)")
-                    backImage = self.imageFromSampleBuffer(backFrame, isFrontCamera: false)
-                    frontImage = self.imageFromSampleBuffer(frontFrame, isFrontCamera: true)
-                }
-                
-                print("📸 CameraManager: Result - Back image: \(backImage != nil), Front image: \(frontImage != nil)")
+                // Extract images based on mode (refactored to reduce redundancy)
+                let (backImage, frontImage) = self.extractImagesForMode(currentMode, backFrame: backFrame, frontFrame: frontFrame)
                 
                 DispatchQueue.main.async {
                     completion(backImage, frontImage)
@@ -572,14 +549,26 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
     
+    // MARK: - Helper: Extract images based on mode (reduces code duplication)
+    private func extractImagesForMode(_ mode: CameraMode, backFrame: CMSampleBuffer?, frontFrame: CMSampleBuffer?) -> (UIImage?, UIImage?) {
+        switch mode {
+        case .backOnly:
+            return (imageFromSampleBuffer(backFrame, isFrontCamera: false), nil)
+        case .frontOnly:
+            return (nil, imageFromSampleBuffer(frontFrame, isFrontCamera: true))
+        case .dual, .picInPic:
+            return (imageFromSampleBuffer(backFrame, isFrontCamera: false),
+                   imageFromSampleBuffer(frontFrame, isFrontCamera: true))
+        }
+    }
+    
     /// Capture PIP photo - compose both cameras into single image
     func capturePIPPhoto(withFlash: Bool = false, completion: @escaping (UIImage?) -> Void) {
         print("📸 CameraManager: capturePIPPhoto - capturing preview screen (NEW METHOD)")
         
-        // Trigger flash if requested
+        // Flash is handled by ViewModel's smart flash system
+        // Just wait a moment if flash was requested to let it activate
         if withFlash {
-            triggerFlashForCapture()
-            // Wait a moment for flash to activate
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 self?.capturePreviewScreenshot(completion: completion)
             }
@@ -823,38 +812,9 @@ class CameraManager: NSObject, ObservableObject {
             // Create CIImage from pixel buffer
             var ciImage = CIImage(cvPixelBuffer: imageBuffer)
             
-            // Apply horizontal mirror flip for front camera (left-right flip)
+            // Apply mirror flip for front camera (refactored for clarity)
             if isFrontCamera {
-                // Get current device orientation
-                var orientation = UIDevice.current.orientation
-                if !orientation.isValidInterfaceOrientation {
-                    orientation = .portrait
-                }
-                
-                // For portrait orientations, flip vertically because the raw image is rotated
-                // For landscape orientations, flip horizontally
-                let flipTransform: CGAffineTransform
-                let center: CGFloat
-                let translateToOrigin: CGAffineTransform
-                let translateBack: CGAffineTransform
-                
-                if orientation.isPortrait {
-                    // Portrait: flip vertically (Y axis) for left-right mirror effect
-                    flipTransform = CGAffineTransform(scaleX: 1, y: -1)
-                    center = ciImage.extent.height / 2
-                    translateToOrigin = CGAffineTransform(translationX: 0, y: -center)
-                    translateBack = CGAffineTransform(translationX: 0, y: center)
-                } else {
-                    // Landscape: flip horizontally (X axis) for left-right mirror effect
-                    flipTransform = CGAffineTransform(scaleX: -1, y: 1)
-                    center = ciImage.extent.width / 2
-                    translateToOrigin = CGAffineTransform(translationX: -center, y: 0)
-                    translateBack = CGAffineTransform(translationX: center, y: 0)
-                }
-                
-                ciImage = ciImage.transformed(by: translateToOrigin)
-                    .transformed(by: flipTransform)
-                    .transformed(by: translateBack)
+                ciImage = applyMirrorTransform(to: ciImage)
             }
             
             // Apply filter BEFORE converting to CGImage for better performance
@@ -863,14 +823,38 @@ class CameraManager: NSObject, ObservableObject {
             }
             
             // Convert to CGImage with optimized rect
-            let extent = ciImage.extent
-            guard let cgImage = self.ciContext.createCGImage(ciImage, from: extent) else {
+            guard let cgImage = self.ciContext.createCGImage(ciImage, from: ciImage.extent) else {
                 return nil
             }
             
-            // Return UIImage without orientation (for preview)
             return UIImage(cgImage: cgImage)
         }
+    }
+    
+    // MARK: - Helper: Apply mirror transform (reduces code duplication)
+    private func applyMirrorTransform(to ciImage: CIImage) -> CIImage {
+        let orientation = UIDevice.current.orientation.isValidInterfaceOrientation
+            ? UIDevice.current.orientation
+            : .portrait
+        
+        // Calculate transform based on orientation
+        let (flipTransform, center, axis): (CGAffineTransform, CGFloat, String) = orientation.isPortrait
+            ? (CGAffineTransform(scaleX: 1, y: -1), ciImage.extent.height / 2, "Y")
+            : (CGAffineTransform(scaleX: -1, y: 1), ciImage.extent.width / 2, "X")
+        
+        // Apply centered flip transform
+        let translation = axis == "Y"
+            ? CGAffineTransform(translationX: 0, y: -center)
+            : CGAffineTransform(translationX: -center, y: 0)
+        
+        let reverseTranslation = axis == "Y"
+            ? CGAffineTransform(translationX: 0, y: center)
+            : CGAffineTransform(translationX: center, y: 0)
+        
+        return ciImage
+            .transformed(by: translation)
+            .transformed(by: flipTransform)
+            .transformed(by: reverseTranslation)
     }
     
     // MARK: - Video Recording (Frame Writing - NO FREEZE!)
@@ -1467,8 +1451,8 @@ class CameraManager: NSObject, ObservableObject {
                     try device.setTorchModeOn(level: 1.0)
                     print("⚡️ CameraManager: Flash triggered for capture")
                     
-                    // Turn off after 0.2 seconds
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    // Keep flash on longer (0.5s) to ensure photo capture happens during flash peak
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                         self?.sessionQueue.async { [weak self] in
                             guard let device = self?.backCameraInput?.device else { return }
                             try? device.lockForConfiguration()
@@ -1763,11 +1747,14 @@ class CameraManager: NSObject, ObservableObject {
             
             // Get the appropriate device based on camera mode
             let device: AVCaptureDevice?
+            let isFront: Bool
             switch self.cameraMode {
             case .backOnly, .dual, .picInPic:
                 device = self.backCameraInput?.device
+                isFront = false
             case .frontOnly:
                 device = self.frontCameraInput?.device
+                isFront = true
             }
             
             guard let captureDevice = device else {
@@ -1775,43 +1762,12 @@ class CameraManager: NSObject, ObservableObject {
                 return
             }
             
-            do {
-                try captureDevice.lockForConfiguration()
-                
-                // Set focus point of interest if supported
-                if captureDevice.isFocusPointOfInterestSupported {
-                    captureDevice.focusPointOfInterest = point
-                    
-                    // Use auto focus mode for smooth focusing
-                    if captureDevice.isFocusModeSupported(.autoFocus) {
-                        captureDevice.focusMode = .autoFocus
-                    } else if captureDevice.isFocusModeSupported(.continuousAutoFocus) {
-                        captureDevice.focusMode = .continuousAutoFocus
-                    }
-                    
-                    print("📸 CameraManager: Focus point set to (\(point.x), \(point.y))")
-                }
-                
-                // Set exposure point of interest if supported
-                if captureDevice.isExposurePointOfInterestSupported {
-                    captureDevice.exposurePointOfInterest = point
-                    
-                    // Use auto exposure mode
-                    if captureDevice.isExposureModeSupported(.autoExpose) {
-                        captureDevice.exposureMode = .autoExpose
-                    } else if captureDevice.isExposureModeSupported(.continuousAutoExposure) {
-                        captureDevice.exposureMode = .continuousAutoExposure
-                    }
-                    
-                    print("📸 CameraManager: Exposure point set to (\(point.x), \(point.y))")
-                }
-                
-                captureDevice.unlockForConfiguration()
-                
-                print("✅ CameraManager: Focus and exposure completed")
-            } catch {
-                print("❌ CameraManager: Failed to set focus/exposure: \(error.localizedDescription)")
-            }
+            // Use smart exposure manager for manual tap-to-focus
+            self.smartExposureManager.setManualFocusAndExposure(
+                on: captureDevice,
+                at: point,
+                isFrontCamera: isFront
+            )
         }
     }
     
@@ -2066,6 +2022,16 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                         }
                         frameLock.unlock()
 
+                        // Apply smart exposure less frequently (every 30 frames, ~1 second at 30fps) for stable focus
+                        // Start from frame 10 to allow initial auto-adjustment
+                        if backFrameCount >= 10 && backFrameCount % 30 == 0, let backDevice = self.backCameraInput?.device {
+                            self.smartExposureManager.applySmartFocusAndExposure(
+                                to: backDevice,
+                                sampleBuffer: sampleBuffer,
+                                isFrontCamera: false
+                            )
+                        }
+
                         // Publish a lightweight preview image at a reduced rate to save CPU
                         if backFrameCount % previewFrameInterval == 0 {
                             if let previewImage = self.imageFromSampleBuffer(sampleBuffer, isFrontCamera: false) {
@@ -2097,7 +2063,7 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                                     print("🎬 CameraManager: Processing PIP frame #\(backFrameCount), front frames: \(frontFrameCount)")
                                 }
                                 
-                                // Start writer session
+                                // Start writer session and audio writer session together
                                 if !pipWriterSessionStarted {
                                     let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                                     if writer.status == .writing {
@@ -2105,6 +2071,13 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                                         recordingStartTime = timestamp
                                         pipWriterSessionStarted = true
                                         print("✅ CameraManager: PIP writer session started at \(timestamp.seconds)")
+                                        
+                                        // Start audio writer session at the same time
+                                        if let audioWriter = self.audioWriter, audioWriter.status == .writing, !self.audioWriterSessionStarted {
+                                            audioWriter.startSession(atSourceTime: timestamp)
+                                            self.audioWriterSessionStarted = true
+                                            print("✅ CameraManager: Audio writer session started at \(timestamp.seconds) (PIP mode)")
+                                        }
                                     }
                                 }
                                 
@@ -2251,6 +2224,16 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                             print("📹 CameraManager: Received \(frontFrameCount) front camera frames")
                         }
                         frameLock.unlock()
+
+                        // Apply smart exposure less frequently (every 30 frames, ~1 second at 30fps) for stable focus
+                        // Start from frame 10 to allow initial auto-adjustment
+                        if frontFrameCount >= 10 && frontFrameCount % 30 == 0, let frontDevice = self.frontCameraInput?.device {
+                            self.smartExposureManager.applySmartFocusAndExposure(
+                                to: frontDevice,
+                                sampleBuffer: sampleBuffer,
+                                isFrontCamera: true
+                            )
+                        }
 
                         // Publish a lightweight preview image at a reduced rate to save CPU
                         if frontFrameCount % previewFrameInterval == 0 {
