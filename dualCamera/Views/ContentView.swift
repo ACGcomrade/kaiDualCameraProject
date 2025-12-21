@@ -648,6 +648,25 @@ struct ContentView: View {
                     }
                 )
             }
+
+            // Notification banner - displayed when active
+            if viewModel.notificationManager.isShowing,
+               let notification = viewModel.notificationManager.currentNotification {
+                NotificationBanner(type: notification)
+            }
+
+            // Save progress indicator - top left corner
+            VStack {
+                HStack {
+                    SaveProgressIndicator(saveQueue: SaveQueueManager.shared)
+                        .padding(.leading, 20)
+                        .padding(.top, 60)
+
+                    Spacer()
+                }
+                Spacer()
+            }
+            .allowsHitTesting(false)
         }
     }
     

@@ -53,7 +53,7 @@ class CameraViewModel: ObservableObject {
     let cameraManager = CameraManager.shared
     let uiVisibilityManager = UIVisibilityManager()
     let performanceMonitor = PerformanceMonitor()
-    // let notificationManager = NotificationManager()  // REMOVED - Notification system disabled
+    let notificationManager = NotificationManager()  // Enabled for file save notifications
     private var cancellables = Set<AnyCancellable>()
     private var recordingTimer: Timer?
     
@@ -422,72 +422,27 @@ class CameraViewModel: ObservableObject {
     }
     
     private func mergeAudioAndSaveVideos(backURL: URL?, frontURL: URL?, audioURL: URL?) {
-        print("🎬 ViewModel: Starting audio merge process")
-        
-        guard let audioURL = audioURL else {
-            print("⚠️ ViewModel: No audio file, saving videos without audio")
-            saveVideosToLibrary(backURL: backURL, frontURL: frontURL)
-            return
-        }
-        
-        let group = DispatchGroup()
-        var mergedBackURL: URL?
-        var mergedFrontURL: URL?
-        var hadError = false
-        
-        // Merge audio into back camera video
+        print("🎬 ViewModel: Adding videos to save queue")
+
+        let videoCount = (backURL != nil ? 1 : 0) + (frontURL != nil ? 1 : 0)
+
+        // 将视频添加到保存队列（队列会自动处理音频合并）
         if let backURL = backURL {
-            group.enter()
-            print("🎬 ViewModel: Merging audio into back camera video...")
-            VideoAudioMerger.mergeAudioIntoVideo(videoURL: backURL, audioURL: audioURL) { result in
-                switch result {
-                case .success(let url):
-                    print("✅ ViewModel: Back video merged successfully")
-                    mergedBackURL = url
-                    // Clean up original video file
-                    try? FileManager.default.removeItem(at: backURL)
-                case .failure(let error):
-                    print("❌ ViewModel: Back video merge failed: \(error.localizedDescription)")
-                    hadError = true
-                    mergedBackURL = backURL // Use original if merge fails
-                }
-                group.leave()
-            }
+            SaveQueueManager.shared.addVideoTask(videoURL: backURL, audioURL: audioURL)
         }
-        
-        // Merge audio into front camera video
+
         if let frontURL = frontURL {
-            group.enter()
-            print("🎬 ViewModel: Merging audio into front camera video...")
-            VideoAudioMerger.mergeAudioIntoVideo(videoURL: frontURL, audioURL: audioURL) { result in
-                switch result {
-                case .success(let url):
-                    print("✅ ViewModel: Front video merged successfully")
-                    mergedFrontURL = url
-                    // Clean up original video file
-                    try? FileManager.default.removeItem(at: frontURL)
-                case .failure(let error):
-                    print("❌ ViewModel: Front video merge failed: \(error.localizedDescription)")
-                    hadError = true
-                    mergedFrontURL = frontURL // Use original if merge fails
-                }
-                group.leave()
-            }
+            SaveQueueManager.shared.addVideoTask(videoURL: frontURL, audioURL: audioURL)
         }
-        
-        // After all merges complete, save to library
-        group.notify(queue: .main) {
-            print("🎬 ViewModel: Audio merge complete, saving to library...")
-            
-            // Clean up audio file
-            try? FileManager.default.removeItem(at: audioURL)
-            print("✅ ViewModel: Temporary audio file deleted")
-            
-            if hadError {
-                print("⚠️ ViewModel: Some merges failed, but continuing with available videos")
-            }
-            
-            self.saveVideosToLibrary(backURL: mergedBackURL, frontURL: mergedFrontURL)
+
+        // 立即更新UI并显示通知
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            self.isRecording = false
+
+            let message = videoCount == 1 ? "视频已加入保存队列" : "\(videoCount)个视频已加入保存队列"
+            self.notificationManager.show(.info(message), duration: 2.0)
         }
     }
     
@@ -495,7 +450,7 @@ class CameraViewModel: ObservableObject {
         print("🎥 ViewModel: saveVideosToLibrary called")
         print("🎥 ViewModel: Has back video: \(backURL != nil)")
         print("🎥 ViewModel: Has front video: \(frontURL != nil)")
-        
+
         // Generate thumbnail for gallery button from back video (or front if back is nil)
         if let videoURL = backURL ?? frontURL {
             generateVideoThumbnail(from: videoURL) { [weak self] thumbnail in
@@ -507,20 +462,20 @@ class CameraViewModel: ObservableObject {
                 }
             }
         }
-        
+
         guard backURL != nil || frontURL != nil else {
             DispatchQueue.main.async {
                 self.isRecording = false
             }
             return
         }
-        
+
         let videoCount = (backURL != nil ? 1 : 0) + (frontURL != nil ? 1 : 0)
         print("✅ ViewModel: Saving \(videoCount) video(s)")
-        
+
         var failedCount = 0
         let group = DispatchGroup()
-        
+
         // Save back camera video
         if let backURL = backURL {
             group.enter()
@@ -535,7 +490,7 @@ class CameraViewModel: ObservableObject {
                 group.leave()
             }
         }
-        
+
         // Save front camera video
         if let frontURL = frontURL {
             group.enter()
@@ -550,13 +505,20 @@ class CameraViewModel: ObservableObject {
                 group.leave()
             }
         }
-        
-        // Only show error if any save failed
+
+        // Show notification when all saves complete
         group.notify(queue: .main) { [weak self] in
             guard let self = self else { return }
-            
+
             print("🎥 ViewModel: All video saves complete. Failed: \(failedCount)")
-            
+
+            if failedCount > 0 {
+                self.notificationManager.show(.error("视频保存失败"), duration: 2.5)
+            } else {
+                let message = videoCount == 1 ? "视频已保存" : "\(videoCount)个视频已保存"
+                self.notificationManager.show(.success(message), duration: 2.0)
+            }
+
             self.isRecording = false
         }
     }
@@ -702,52 +664,28 @@ class CameraViewModel: ObservableObject {
         print("📸 ViewModel: savePhotosToLibrary called")
         print("📸 ViewModel: Has back image: \(backImage != nil)")
         print("📸 ViewModel: Has front image: \(frontImage != nil)")
-        
+
         guard backImage != nil || frontImage != nil else {
             print("❌ ViewModel: No photos to save!")
             return
         }
-        
-        let photoCount = (backImage != nil ? 1 : 0) + (frontImage != nil ? 1 : 0)
-        print("✅ ViewModel: Saving \(photoCount) photo(s)")
-        
-        var failedCount = 0
-        let group = DispatchGroup()
-        
-        // Save back camera image
-        if let backImage = backImage {
-            group.enter()
-            print("📸 ViewModel: Saving back camera image...")
-            cameraManager.savePhotoToLibrary(backImage, isFrontCamera: false) { success, error in
-                if !success {
-                    print("❌ ViewModel: Back camera photo failed: \(error?.localizedDescription ?? "unknown")")
-                    failedCount += 1
-                } else {
-                    print("✅ ViewModel: Back camera photo saved")
-                }
-                group.leave()
-            }
-        }
-        
-        // Save front camera image
-        if let frontImage = frontImage {
-            group.enter()
-            print("📸 ViewModel: Saving front camera image...")
-            cameraManager.savePhotoToLibrary(frontImage, isFrontCamera: true) { success, error in
-                if !success {
-                    print("❌ ViewModel: Front camera photo failed: \(error?.localizedDescription ?? "unknown")")
-                    failedCount += 1
-                } else {
-                    print("✅ ViewModel: Front camera photo saved")
-                }
-                group.leave()
-            }
-        }
-        
-        // Only show error if any save failed
-        group.notify(queue: .main) { [weak self] in
-            print("📸 ViewModel: All saves complete. Failed: \(failedCount)")
 
+        let photoCount = (backImage != nil ? 1 : 0) + (frontImage != nil ? 1 : 0)
+        print("✅ ViewModel: Adding \(photoCount) photo(s) to save queue")
+
+        // 使用保存队列系统
+        if let backImage = backImage {
+            SaveQueueManager.shared.addPhotoTask(image: backImage, isFrontCamera: false)
+        }
+
+        if let frontImage = frontImage {
+            SaveQueueManager.shared.addPhotoTask(image: frontImage, isFrontCamera: true)
+        }
+
+        // 立即显示通知
+        DispatchQueue.main.async { [weak self] in
+            let message = photoCount == 1 ? "照片已加入保存队列" : "\(photoCount)张照片已加入保存队列"
+            self?.notificationManager.show(.info(message), duration: 2.0)
         }
     }
     
